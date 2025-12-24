@@ -1,0 +1,160 @@
+# Docker Compose for Local Testing
+#
+# This docker-compose file allows you to test the model serving stack locally
+# before deploying to Kubernetes.
+#
+# Services:
+#   - redis: Feast online store
+#   - mlflow: Model registry
+#   - feature-transformer: Feature extraction service
+#   - triton: Triton Inference Server (model serving)
+#
+# Usage:
+#   # Start all services
+#   docker-compose up -d
+#
+#   # View logs
+#   docker-compose logs -f feature-transformer
+#
+#   # Test inference
+#   curl -X POST http://localhost:8080/transform \
+#     -H "Content-Type: application/json" \
+#     -d '{"email_id": "test1", "subject": "Test", "body": "Hello", "sender": "test@example.com"}'
+#
+#   # Stop all services
+#   docker-compose down
+
+version: '3.8'
+
+services:
+  # Redis for Feast Online Store
+  redis:
+    image: redis:7.2-alpine
+    container_name: feast-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MLflow for Model Registry
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.9.2
+    container_name: mlflow
+    ports:
+      - "5000:5000"
+    environment:
+      - MLFLOW_BACKEND_STORE_URI=sqlite:///mlflow.db
+      - MLFLOW_DEFAULT_ARTIFACT_ROOT=/mlflow/artifacts
+    volumes:
+      - mlflow-data:/mlflow
+    command: mlflow server --host 0.0.0.0 --port 5000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Feature Transformer Service
+  feature-transformer:
+    build:
+      context: ./feature-transformer
+      dockerfile: Dockerfile
+    container_name: feature-transformer
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - FEAST_ENABLED=true
+      - FEAST_REDIS_HOST=redis
+      - FEAST_REDIS_PORT=6379
+      - AZURE_STORAGE_ACCOUNT_NAME=${AZURE_STORAGE_ACCOUNT_NAME:-}
+      - AZURE_STORAGE_ACCOUNT_KEY=${AZURE_STORAGE_ACCOUNT_KEY:-}
+      - AZURE_STORAGE_CONTAINER=feast
+      - TFIDF_VECTORIZER_PATH=features/artifacts/tfidf_vectorizer.pkl
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Triton Inference Server
+  triton:
+    image: nvcr.io/nvidia/tritonserver:23.10-py3
+    container_name: triton
+    ports:
+      - "8000:8000"  # HTTP
+      - "8001:8001"  # gRPC
+      - "8002:8002"  # Metrics
+    environment:
+      - AZURE_STORAGE_ACCOUNT_NAME=${AZURE_STORAGE_ACCOUNT_NAME:-}
+      - AZURE_STORAGE_ACCOUNT_KEY=${AZURE_STORAGE_ACCOUNT_KEY:-}
+    volumes:
+      - ./models:/models
+    command: >
+      tritonserver
+      --model-repository=/models
+      --model-control-mode=explicit
+      --strict-model-config=false
+      --log-verbose=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v2/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Model Export Job (one-time)
+  model-export:
+    build:
+      context: ./model-export
+      dockerfile: Dockerfile
+    container_name: model-export
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - AZURE_STORAGE_ACCOUNT_NAME=${AZURE_STORAGE_ACCOUNT_NAME:-}
+      - AZURE_STORAGE_ACCOUNT_KEY=${AZURE_STORAGE_ACCOUNT_KEY:-}
+      - AZURE_STORAGE_CONTAINER=models
+    volumes:
+      - ./models:/output
+    command: >
+      --model-name spam-detector
+      --model-stage Staging
+      --output-dir /output/spam-detector
+      --no-upload
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    profiles:
+      - export
+
+  # Integration Test Runner
+  test:
+    image: python:3.10-slim
+    container_name: integration-test
+    environment:
+      - FEATURE_TRANSFORMER_URL=http://feature-transformer:8080
+      - TRITON_URL=http://triton:8000
+    volumes:
+      - ./tests:/tests
+    command: python /tests/integration_test.py
+    depends_on:
+      - feature-transformer
+      - triton
+    profiles:
+      - test
+
+volumes:
+  redis-data:
+  mlflow-data:
+
+networks:
+  default:
+    name: spam-detection-network

@@ -1,0 +1,318 @@
+# RayJob: Parse Emails
+#
+# This job reads raw emails from Azure Blob Storage, parses them into
+# structured format, and writes Parquet files.
+#
+# Prerequisites:
+#   - ray-azure-secret created in ray namespace
+#   - Raw emails uploaded (download-dataset job completed)
+#
+# Usage:
+#   kubectl apply -f rayjob-parse-emails.yaml
+#
+# Monitor:
+#   kubectl logs -n ray -l job-name=parse-emails -f
+
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: parse-emails
+  namespace: ray
+  labels:
+    app: spam-detection
+    phase: data-parsing
+spec:
+  entrypoint: python /home/ray/parse_emails.py
+  
+  # Use existing Ray cluster
+  clusterSelector:
+    ray.io/cluster: ray-cluster
+  
+  # Job configuration
+  runtimeEnvYAML: |
+    pip:
+      - adlfs>=2023.1.0
+      - azure-identity>=1.12.0
+      - pandas>=2.0.0
+      - pyarrow>=12.0.0
+    working_dir: "."
+  
+  # Timeout settings
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 7200  # 2 hour timeout
+  
+  # Submitter pod configuration
+  submitterPodTemplate:
+    spec:
+      containers:
+        - name: ray-job-submitter
+          image: rayproject/ray-ml:2.9.0-py310
+          env:
+            - name: AZURE_STORAGE_ACCOUNT_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: ray-azure-secret
+                  key: azure-storage-account-name
+            - name: AZURE_STORAGE_ACCOUNT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ray-azure-secret
+                  key: azure-storage-account-key
+          volumeMounts:
+            - name: job-scripts
+              mountPath: /home/ray
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+      volumes:
+        - name: job-scripts
+          configMap:
+            name: parse-emails-scripts
+      restartPolicy: Never
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: parse-emails-scripts
+  namespace: ray
+data:
+  parse_emails.py: |
+    """
+    Parse raw emails from SpamAssassin corpus into structured Parquet format.
+    """
+    
+    import os
+    import re
+    import email
+    import hashlib
+    import logging
+    from email.utils import parsedate_to_datetime, parseaddr
+    from datetime import datetime
+    from typing import Optional
+    
+    import ray
+    import pandas as pd
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from adlfs import AzureBlobFileSystem
+    
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger(__name__)
+    
+    STORAGE_ACCOUNT_NAME = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME")
+    STORAGE_ACCOUNT_KEY = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY")
+    
+    INPUT_CONTAINER = "datasets"
+    INPUT_PATH = "raw/spamassassin"
+    OUTPUT_CONTAINER = "datasets"
+    OUTPUT_PATH = "processed/emails"
+    
+    
+    def get_azure_fs() -> AzureBlobFileSystem:
+        return AzureBlobFileSystem(
+            account_name=STORAGE_ACCOUNT_NAME,
+            account_key=STORAGE_ACCOUNT_KEY
+        )
+    
+    
+    def parse_email_date(date_str: Optional[str]) -> Optional[datetime]:
+        if not date_str:
+            return None
+        try:
+            return parsedate_to_datetime(date_str)
+        except (TypeError, ValueError):
+            return None
+    
+    
+    def extract_email_body(msg: email.message.Message) -> tuple[str, Optional[str]]:
+        text_body = ""
+        html_body = None
+        
+        if msg.is_multipart():
+            for part in msg.walk():
+                content_type = part.get_content_type()
+                try:
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        charset = part.get_content_charset() or 'utf-8'
+                        try:
+                            decoded = payload.decode(charset, errors='replace')
+                        except (LookupError, UnicodeDecodeError):
+                            decoded = payload.decode('utf-8', errors='replace')
+                        
+                        if content_type == "text/plain":
+                            text_body += decoded
+                        elif content_type == "text/html":
+                            html_body = decoded
+                except Exception:
+                    continue
+        else:
+            try:
+                payload = msg.get_payload(decode=True)
+                if payload:
+                    charset = msg.get_content_charset() or 'utf-8'
+                    try:
+                        text_body = payload.decode(charset, errors='replace')
+                    except (LookupError, UnicodeDecodeError):
+                        text_body = payload.decode('utf-8', errors='replace')
+            except Exception:
+                text_body = str(msg.get_payload())
+        
+        return text_body, html_body
+    
+    
+    def parse_single_email(content: bytes, filename: str, label: str) -> Optional[dict]:
+        try:
+            email_id = hashlib.sha256(content).hexdigest()[:16]
+            msg = email.message_from_bytes(content)
+            
+            sender_raw = msg.get("From", "")
+            sender_name, sender_email = parseaddr(sender_raw)
+            sender_domain = sender_email.split("@")[-1] if "@" in sender_email else ""
+            
+            recipient_raw = msg.get("To", "")
+            _, recipient_email = parseaddr(recipient_raw)
+            
+            text_body, html_body = extract_email_body(msg)
+            
+            received = msg.get_all("Received", [])
+            
+            return {
+                "email_id": email_id,
+                "filename": filename,
+                "label": label,
+                "subject": msg.get("Subject", ""),
+                "sender_raw": sender_raw,
+                "sender_email": sender_email,
+                "sender_domain": sender_domain,
+                "recipient": recipient_email,
+                "date": parse_email_date(msg.get("Date")),
+                "body_text": text_body[:50000] if text_body else "",
+                "body_html": html_body[:50000] if html_body else None,
+                "content_type": msg.get_content_type(),
+                "x_mailer": msg.get("X-Mailer"),
+                "received_hop_count": len(received),
+                "received_hops": received[:10],
+                "return_path": msg.get("Return-Path"),
+                "message_id": msg.get("Message-ID"),
+                "x_spam_status": msg.get("X-Spam-Status"),
+                "x_spam_score": msg.get("X-Spam-Score"),
+            }
+        except Exception as e:
+            logger.warning(f"Failed to parse {filename}: {e}")
+            return None
+    
+    
+    @ray.remote
+    def process_email_batch(file_paths: list[str], label: str) -> list[dict]:
+        fs = get_azure_fs()
+        records = []
+        
+        for file_path in file_paths:
+            try:
+                with fs.open(file_path, "rb") as f:
+                    content = f.read()
+                
+                filename = file_path.split("/")[-1]
+                record = parse_single_email(content, filename, label)
+                
+                if record:
+                    records.append(record)
+            except Exception as e:
+                logger.warning(f"Error reading {file_path}: {e}")
+        
+        return records
+    
+    
+    def list_emails_by_label(fs: AzureBlobFileSystem, label: str) -> list[str]:
+        path = f"{INPUT_CONTAINER}/{INPUT_PATH}/{label}"
+        try:
+            files = fs.ls(path, detail=False)
+            return [f for f in files if not f.endswith("/")]
+        except Exception as e:
+            logger.error(f"Error listing {path}: {e}")
+            return []
+    
+    
+    def main():
+        logger.info("Starting email parsing job")
+        
+        if not STORAGE_ACCOUNT_NAME or not STORAGE_ACCOUNT_KEY:
+            raise ValueError("Azure storage credentials not set")
+        
+        ray.init(address="auto")
+        logger.info(f"Connected to Ray cluster: {ray.cluster_resources()}")
+        
+        fs = get_azure_fs()
+        
+        all_files = []
+        for label in ["spam", "ham"]:
+            files = list_emails_by_label(fs, label)
+            all_files.extend([(f, label) for f in files])
+            logger.info(f"Found {len(files)} {label} emails")
+        
+        if not all_files:
+            logger.error("No email files found!")
+            return
+        
+        batch_size = 100
+        batches = []
+        
+        spam_files = [f for f, l in all_files if l == "spam"]
+        ham_files = [f for f, l in all_files if l == "ham"]
+        
+        for i in range(0, len(spam_files), batch_size):
+            batches.append((spam_files[i:i+batch_size], "spam"))
+        
+        for i in range(0, len(ham_files), batch_size):
+            batches.append((ham_files[i:i+batch_size], "ham"))
+        
+        logger.info(f"Processing {len(all_files)} emails in {len(batches)} batches")
+        
+        futures = [
+            process_email_batch.remote(files, label)
+            for files, label in batches
+        ]
+        
+        all_records = []
+        for result in ray.get(futures):
+            all_records.extend(result)
+        
+        logger.info(f"Parsed {len(all_records)} emails successfully")
+        
+        df = pd.DataFrame(all_records)
+        df["date"] = pd.to_datetime(df["date"], errors="coerce", utc=True)
+        df["received_hops"] = df["received_hops"].apply(lambda x: "|||".join(x) if x else "")
+        
+        logger.info(f"DataFrame shape: {df.shape}")
+        logger.info(f"Label distribution:\n{df['label'].value_counts()}")
+        
+        output_path = f"{OUTPUT_CONTAINER}/{OUTPUT_PATH}"
+        
+        for label in ["spam", "ham"]:
+            label_df = df[df["label"] == label]
+            label_path = f"{output_path}/{label}/emails.parquet"
+            
+            logger.info(f"Writing {len(label_df)} {label} records to {label_path}")
+            
+            table = pa.Table.from_pandas(label_df, preserve_index=False)
+            with fs.open(label_path, "wb") as f:
+                pq.write_table(table, f)
+        
+        combined_path = f"{output_path}/all_emails.parquet"
+        logger.info(f"Writing combined dataset to {combined_path}")
+        
+        table = pa.Table.from_pandas(df, preserve_index=False)
+        with fs.open(combined_path, "wb") as f:
+            pq.write_table(table, f)
+        
+        logger.info("Email parsing complete!")
+    
+    
+    if __name__ == "__main__":
+        main()

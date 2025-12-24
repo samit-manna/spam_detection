@@ -1,0 +1,64 @@
+name: Generate Baseline
+description: Generate baseline statistics from training data for drift detection
+
+inputs:
+  - name: training_data_path
+    type: String
+    description: Path to training data parquet file in Azure Blob Storage
+  - name: model_name
+    type: String
+    description: Name of the model
+    default: spam-detector
+  - name: model_version
+    type: String
+    description: Version of the model
+  - name: output_path
+    type: String
+    description: Output path in Azure Blob storage for baseline files
+  - name: label_column
+    type: String
+    description: Name of the label column
+    default: label
+  - name: prediction_column
+    type: String
+    description: Name of prediction probability column (optional)
+    default: ""
+  - name: container_name
+    type: String
+    description: Azure Blob container name
+    default: data
+
+outputs:
+  - name: baseline_path
+    type: String
+    description: Path to generated baseline JSON file
+
+implementation:
+  container:
+    image: ${ACR_NAME}.azurecr.io/baseline-generator:latest
+    command:
+      - python
+      - -m
+      - monitoring.baseline.generator
+    args:
+      - --training-data
+      - {inputValue: training_data_path}
+      - --model-name
+      - {inputValue: model_name}
+      - --model-version
+      - {inputValue: model_version}
+      - --output-path
+      - {inputValue: output_path}
+      - --label-column
+      - {inputValue: label_column}
+      - --container
+      - {inputValue: container_name}
+    env:
+      AZURE_STORAGE_ACCOUNT_NAME:
+        secretKeyRef:
+          name: azure-storage-secret
+          key: account-name
+      AZURE_STORAGE_ACCOUNT_KEY:
+        secretKeyRef:
+          name: azure-storage-secret
+          key: account-key

@@ -1,0 +1,27 @@
+# Feast Feature Store Configuration
+# 
+# Prerequisites:
+#   export AZURE_STORAGE_ACCOUNT_NAME=<your-storage-account>
+#   export AZURE_STORAGE_ACCOUNT_KEY=<your-storage-key>
+#   export FEAST_REDIS_CONNECTION_STRING=rediss://:password@host:6380/0
+#
+# Usage:
+#   cd feature_repo
+#   feast apply
+
+project: spam_detection
+provider: local
+registry: /data/registry.db
+
+# Offline store configuration
+offline_store:
+  type: file
+
+# Online store configuration - Azure Redis Cache (optional)
+# Commented out for local testing - uncomment when Redis is available
+# online_store:
+#   type: redis
+#   connection_string: ${FEAST_REDIS_CONNECTION_STRING}
+
+# Entity key serialization format  
+entity_key_serialization_version: 3

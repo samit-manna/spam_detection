@@ -1,0 +1,27 @@
+# Core dependencies
+numpy>=2.0.0,<3.0.0
+pandas>=2.0.0
+pyarrow>=14.0.0
+scipy>=1.14.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# Azure Storage
+azure-storage-blob>=12.19.0
+azure-identity>=1.15.0
+adlfs>=2023.10.0
+
+# ML/Monitoring
+evidently>=0.5.0
+scikit-learn>=1.5.0
+
+# Async
+httpx>=0.25.0
+aiofiles>=23.2.0
+
+# FastAPI (for API extensions)
+fastapi>=0.104.0
+uvicorn>=0.24.0
+
+# Logging and monitoring
+structlog>=23.2.0

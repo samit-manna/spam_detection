@@ -1,0 +1,181 @@
+# KServe InferenceService - Staging Deployment
+#
+# Deploys the spam-detector model to staging environment using Triton runtime.
+# Model is loaded from Azure Blob Storage in Triton model repository format.
+#
+# Prerequisites:
+#   - KServe installed via Terraform (../terraform/serving-infra)
+#   - Model exported to Azure Blob (see model-export/)
+#   - Azure storage secret configured (created by Terraform)
+#
+# Usage:
+#   kubectl apply -f staging-isvc.yaml
+---
+# Service Account for inference pods with Azure storage access
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kserve-inference-sa
+  namespace: kserve
+  labels:
+    app: spam-detector
+secrets:
+  - name: storage-config
+---
+# Secret for Azure Blob Storage - KServe standard format
+# KServe looks for 'storage-config' secret with Azure credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: storage-config
+  namespace: kserve
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: ""
+type: Opaque
+stringData:
+  AZURE_STORAGE_ACCOUNT: "${AZURE_STORAGE_ACCOUNT_NAME}"
+  AZURE_STORAGE_ACCESS_KEY: "${AZURE_STORAGE_ACCOUNT_KEY}"
+---
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: spam-detector-staging
+  namespace: kserve
+  labels:
+    app: spam-detector
+    environment: staging
+    version: v1
+  annotations:
+    # Enable prometheus scraping
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    # Use RawDeployment to have full control over pod spec
+    serving.kserve.io/deploymentMode: "RawDeployment"
+spec:
+  predictor:
+    minReplicas: 1
+    maxReplicas: 3
+    timeout: 60
+    serviceAccountName: kserve-inference-sa
+    
+    # Use containers spec directly for full control
+    containers:
+      - name: kserve-container
+        image: nvcr.io/nvidia/tritonserver:23.05-py3
+        args:
+          - tritonserver
+          - --model-store=/mnt/models
+          - --grpc-port=9000
+          - --http-port=8080
+          - --allow-grpc=true
+          - --allow-http=true
+        ports:
+          - containerPort: 8080
+            protocol: TCP
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+        volumeMounts:
+          - name: model-storage
+            mountPath: /mnt/models
+        readinessProbe:
+          httpGet:
+            path: /v2/health/ready
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /v2/health/live
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 15
+    
+    # Init container to download model from Azure Blob Storage
+    initContainers:
+      - name: storage-initializer
+        image: kserve/storage-initializer:v0.12.0
+        args:
+          - "https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/models/triton-repo/spam-detector"
+          - "/mnt/models/spam-detector"
+        env:
+          - name: AZURE_STORAGE_ACCOUNT
+            valueFrom:
+              secretKeyRef:
+                name: storage-config
+                key: AZURE_STORAGE_ACCOUNT
+          - name: AZURE_STORAGE_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: storage-config
+                key: AZURE_STORAGE_ACCESS_KEY
+        volumeMounts:
+          - name: model-storage
+            mountPath: /mnt/models
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+    
+    volumes:
+      - name: model-storage
+        emptyDir: {}
+---
+# VirtualService for custom routing (optional)
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: spam-detector-staging-vs
+  namespace: kserve
+spec:
+  hosts:
+    - spam-detector-staging.kserve.svc.cluster.local
+    - spam-detector-staging.example.com
+  http:
+    - match:
+        - uri:
+            prefix: /v2
+      route:
+        - destination:
+            host: spam-detector-staging-predictor.kserve.svc.cluster.local
+            port:
+              number: 80
+      timeout: 60s
+      retries:
+        attempts: 3
+        perTryTimeout: 20s
+        retryOn: "5xx,reset,connect-failure"
+---
+# DestinationRule for connection pool settings
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: spam-detector-staging-dr
+  namespace: kserve
+spec:
+  host: spam-detector-staging-predictor.kserve.svc.cluster.local
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100
+        connectTimeout: 10s
+      http:
+        h2UpgradePolicy: UPGRADE
+        http1MaxPendingRequests: 100
+        http2MaxRequests: 1000
+        maxRequestsPerConnection: 100
+        maxRetries: 3
+    loadBalancer:
+      simple: ROUND_ROBIN
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50

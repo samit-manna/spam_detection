@@ -1,0 +1,99 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: api-gateway
+  namespace: serving
+spec:
+  hosts:
+    - "api.ml-platform.example.com"
+    - "api-gateway.serving.svc.cluster.local"
+  gateways:
+    - istio-system/ml-platform-gateway
+    - mesh
+  http:
+    - match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            host: api-gateway.serving.svc.cluster.local
+            port:
+              number: 80
+      timeout: 60s
+      retries:
+        attempts: 3
+        perTryTimeout: 20s
+        retryOn: connect-failure,refused-stream,unavailable,cancelled,retriable-4xx
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: api-gateway
+  namespace: serving
+spec:
+  host: api-gateway.serving.svc.cluster.local
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100
+      http:
+        h2UpgradePolicy: DO_NOT_UPGRADE
+        http1MaxPendingRequests: 100
+        http2MaxRequests: 1000
+        maxRequestsPerConnection: 100
+        maxRetries: 3
+    loadBalancer:
+      simple: LEAST_CONN
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: api-gateway
+  namespace: serving
+spec:
+  selector:
+    matchLabels:
+      app: api-gateway
+  action: ALLOW
+  rules:
+    # Allow health checks without authentication
+    - to:
+        - operation:
+            paths: ["/health", "/health/*", "/metrics"]
+    # Allow all other traffic (API key auth handled by app)
+    - to:
+        - operation:
+            paths: ["/*"]
+---
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: ml-platform-gateway
+  namespace: istio-system
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - "api.ml-platform.example.com"
+      # Uncomment for HTTPS redirect
+      # tls:
+      #   httpsRedirect: true
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+      hosts:
+        - "api.ml-platform.example.com"
+      tls:
+        mode: SIMPLE
+        credentialName: ml-platform-tls

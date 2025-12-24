@@ -1,0 +1,401 @@
+# RayJob: Extract Features
+#
+# This job extracts ML features from parsed emails and writes them
+# to the Feast offline store location in Azure Blob Storage.
+#
+# Prerequisites:
+#   - ray-azure-secret created in ray namespace
+#   - Parsed emails available (parse-emails job completed)
+#
+# Usage:
+#   kubectl apply -f rayjob-extract-features.yaml
+#
+# Monitor:
+#   kubectl logs -n ray -l job-name=extract-features -f
+
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: extract-features
+  namespace: ray
+  labels:
+    app: spam-detection
+    phase: feature-extraction
+spec:
+  entrypoint: python /home/ray/extract_features.py
+  
+  # Use existing Ray cluster
+  clusterSelector:
+    ray.io/cluster: ray-cluster
+  
+  # Job configuration
+  runtimeEnvYAML: |
+    pip:
+      - adlfs>=2023.1.0
+      - azure-identity>=1.12.0
+      - pandas>=2.0.0
+      - pyarrow>=12.0.0
+      - scikit-learn>=1.3.0
+      - numpy>=1.24.0
+    working_dir: "."
+  
+  # Timeout settings
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 7200  # 2 hour timeout
+  
+  # Submitter pod configuration
+  submitterPodTemplate:
+    spec:
+      containers:
+        - name: ray-job-submitter
+          image: rayproject/ray-ml:2.9.0-py310
+          env:
+            - name: AZURE_STORAGE_ACCOUNT_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: ray-azure-secret
+                  key: azure-storage-account-name
+            - name: AZURE_STORAGE_ACCOUNT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ray-azure-secret
+                  key: azure-storage-account-key
+          volumeMounts:
+            - name: job-scripts
+              mountPath: /home/ray
+          resources:
+            requests:
+              cpu: "1"
+              memory: "4Gi"
+            limits:
+              cpu: "2"
+              memory: "8Gi"
+      volumes:
+        - name: job-scripts
+          configMap:
+            name: extract-features-scripts
+      restartPolicy: Never
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: extract-features-scripts
+  namespace: ray
+data:
+  extract_features.py: |
+    """
+    Extract ML features from parsed emails for spam detection.
+    """
+    
+    import os
+    import re
+    import logging
+    import pickle
+    from datetime import datetime
+    from typing import Optional
+    
+    import ray
+    import numpy as np
+    import pandas as pd
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from adlfs import AzureBlobFileSystem
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger(__name__)
+    
+    STORAGE_ACCOUNT_NAME = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME")
+    STORAGE_ACCOUNT_KEY = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY")
+    
+    INPUT_CONTAINER = "datasets"
+    INPUT_PATH = "processed/emails/all_emails.parquet"
+    OUTPUT_CONTAINER = "feast"
+    OUTPUT_PATH = "features"
+    
+    TFIDF_MAX_FEATURES = 500
+    TFIDF_NGRAM_RANGE = (1, 2)
+    
+    
+    def get_azure_fs() -> AzureBlobFileSystem:
+        return AzureBlobFileSystem(
+            account_name=STORAGE_ACCOUNT_NAME,
+            account_key=STORAGE_ACCOUNT_KEY
+        )
+    
+    
+    # Text features
+    def count_urls(text: str) -> int:
+        url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
+        return len(re.findall(url_pattern, text or ""))
+    
+    def count_emails_in_text(text: str) -> int:
+        email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+        return len(re.findall(email_pattern, text or ""))
+    
+    def uppercase_ratio(text: str) -> float:
+        if not text:
+            return 0.0
+        alpha_chars = [c for c in text if c.isalpha()]
+        if not alpha_chars:
+            return 0.0
+        return sum(1 for c in alpha_chars if c.isupper()) / len(alpha_chars)
+    
+    def count_exclamations(text: str) -> int:
+        return (text or "").count("!")
+    
+    def count_question_marks(text: str) -> int:
+        return (text or "").count("?")
+    
+    def avg_word_length(text: str) -> float:
+        if not text:
+            return 0.0
+        words = text.split()
+        if not words:
+            return 0.0
+        return sum(len(w) for w in words) / len(words)
+    
+    def word_count(text: str) -> int:
+        return len((text or "").split())
+    
+    def char_count(text: str) -> int:
+        return len(text or "")
+    
+    # Structural features
+    def has_html(html_body: Optional[str]) -> int:
+        return 1 if html_body else 0
+    
+    def html_to_text_ratio(text_body: str, html_body: Optional[str]) -> float:
+        text_len = len(text_body or "")
+        html_len = len(html_body or "")
+        if text_len == 0:
+            return float(html_len) if html_len > 0 else 0.0
+        return html_len / text_len
+    
+    def subject_length(subject: str) -> int:
+        return len(subject or "")
+    
+    def subject_has_re(subject: str) -> int:
+        return 1 if (subject or "").lower().startswith("re:") else 0
+    
+    def subject_has_fwd(subject: str) -> int:
+        s = (subject or "").lower()
+        return 1 if s.startswith("fwd:") or s.startswith("fw:") else 0
+    
+    def subject_all_caps(subject: str) -> int:
+        s = subject or ""
+        alpha_chars = [c for c in s if c.isalpha()]
+        if len(alpha_chars) < 3:
+            return 0
+        return 1 if all(c.isupper() for c in alpha_chars) else 0
+    
+    # Header features
+    def has_x_mailer(x_mailer: Optional[str]) -> int:
+        return 1 if x_mailer else 0
+    
+    def sender_domain_length(sender_domain: str) -> int:
+        return len(sender_domain or "")
+    
+    def sender_has_numbers(sender_email: str) -> int:
+        local_part = (sender_email or "").split("@")[0]
+        return 1 if any(c.isdigit() for c in local_part) else 0
+    
+    # Temporal features
+    def extract_hour(date) -> int:
+        if pd.isna(date):
+            return -1
+        return date.hour
+    
+    def extract_day_of_week(date) -> int:
+        if pd.isna(date):
+            return -1
+        return date.weekday()
+    
+    def is_weekend(date) -> int:
+        if pd.isna(date):
+            return -1
+        return 1 if date.weekday() >= 5 else 0
+    
+    def is_night_hour(date) -> int:
+        if pd.isna(date):
+            return -1
+        hour = date.hour
+        return 1 if hour >= 22 or hour < 6 else 0
+    
+    # Spam indicators
+    SPAM_KEYWORDS = [
+        "free", "winner", "click here", "act now", "limited time",
+        "congratulations", "urgent", "money", "cash", "prize",
+        "viagra", "pharmacy", "buy now", "order now", "subscribe",
+        "unsubscribe", "remove", "opt-out", "credit card", "wire transfer"
+    ]
+    
+    def spam_keyword_count(text: str) -> int:
+        text_lower = (text or "").lower()
+        return sum(1 for kw in SPAM_KEYWORDS if kw in text_lower)
+    
+    def has_unsubscribe(text: str) -> int:
+        return 1 if "unsubscribe" in (text or "").lower() else 0
+    
+    
+    @ray.remote
+    def extract_features_batch(df_batch: pd.DataFrame) -> pd.DataFrame:
+        features = pd.DataFrame()
+        features["email_id"] = df_batch["email_id"]
+        features["label"] = df_batch["label"]
+        
+        features["url_count"] = df_batch["body_text"].apply(count_urls)
+        features["email_count_in_body"] = df_batch["body_text"].apply(count_emails_in_text)
+        features["uppercase_ratio"] = df_batch["body_text"].apply(uppercase_ratio)
+        features["exclamation_count"] = df_batch["body_text"].apply(count_exclamations)
+        features["question_mark_count"] = df_batch["body_text"].apply(count_question_marks)
+        features["avg_word_length"] = df_batch["body_text"].apply(avg_word_length)
+        features["word_count"] = df_batch["body_text"].apply(word_count)
+        features["char_count"] = df_batch["body_text"].apply(char_count)
+        
+        features["has_html"] = df_batch["body_html"].apply(has_html)
+        features["html_to_text_ratio"] = df_batch.apply(
+            lambda r: html_to_text_ratio(r["body_text"], r["body_html"]), axis=1
+        )
+        features["subject_length"] = df_batch["subject"].apply(subject_length)
+        features["subject_has_re"] = df_batch["subject"].apply(subject_has_re)
+        features["subject_has_fwd"] = df_batch["subject"].apply(subject_has_fwd)
+        features["subject_all_caps"] = df_batch["subject"].apply(subject_all_caps)
+        
+        features["has_x_mailer"] = df_batch["x_mailer"].apply(has_x_mailer)
+        features["sender_domain_length"] = df_batch["sender_domain"].apply(sender_domain_length)
+        features["sender_has_numbers"] = df_batch["sender_email"].apply(sender_has_numbers)
+        features["received_hop_count"] = df_batch["received_hop_count"]
+        
+        features["hour_of_day"] = df_batch["date"].apply(extract_hour)
+        features["day_of_week"] = df_batch["date"].apply(extract_day_of_week)
+        features["is_weekend"] = df_batch["date"].apply(is_weekend)
+        features["is_night_hour"] = df_batch["date"].apply(is_night_hour)
+        
+        features["spam_keyword_count"] = df_batch["body_text"].apply(spam_keyword_count)
+        features["has_unsubscribe"] = df_batch["body_text"].apply(has_unsubscribe)
+        
+        features["event_timestamp"] = pd.Timestamp.now(tz="UTC")
+        
+        return features
+    
+    
+    def fit_tfidf_vectorizer(texts: pd.Series) -> TfidfVectorizer:
+        logger.info(f"Fitting TF-IDF vectorizer on {len(texts)} documents")
+        
+        vectorizer = TfidfVectorizer(
+            max_features=TFIDF_MAX_FEATURES,
+            ngram_range=TFIDF_NGRAM_RANGE,
+            stop_words="english",
+            min_df=5,
+            max_df=0.95,
+            sublinear_tf=True
+        )
+        
+        texts_clean = texts.fillna("")
+        vectorizer.fit(texts_clean)
+        
+        logger.info(f"Vocabulary size: {len(vectorizer.vocabulary_)}")
+        return vectorizer
+    
+    
+    def transform_tfidf(texts: pd.Series, vectorizer: TfidfVectorizer) -> np.ndarray:
+        texts_clean = texts.fillna("")
+        return vectorizer.transform(texts_clean).toarray()
+    
+    
+    def main():
+        logger.info("Starting feature extraction job")
+        
+        if not STORAGE_ACCOUNT_NAME or not STORAGE_ACCOUNT_KEY:
+            raise ValueError("Azure storage credentials not set")
+        
+        ray.init(address="auto")
+        logger.info(f"Connected to Ray cluster: {ray.cluster_resources()}")
+        
+        fs = get_azure_fs()
+        
+        input_path = f"{INPUT_CONTAINER}/{INPUT_PATH}"
+        logger.info(f"Loading emails from {input_path}")
+        
+        with fs.open(input_path, "rb") as f:
+            df = pd.read_parquet(f)
+        
+        logger.info(f"Loaded {len(df)} emails")
+        
+        batch_size = 500
+        batches = [df.iloc[i:i+batch_size] for i in range(0, len(df), batch_size)]
+        
+        logger.info(f"Extracting features in {len(batches)} batches")
+        
+        batch_refs = [ray.put(batch) for batch in batches]
+        futures = [extract_features_batch.remote(ref) for ref in batch_refs]
+        feature_batches = ray.get(futures)
+        features_df = pd.concat(feature_batches, ignore_index=True)
+        
+        logger.info(f"Extracted {len(features_df.columns) - 3} non-TF-IDF features")
+        
+        logger.info("Fitting TF-IDF vectorizer")
+        vectorizer = fit_tfidf_vectorizer(df["body_text"])
+        
+        logger.info("Transforming text to TF-IDF vectors")
+        tfidf_matrix = transform_tfidf(df["body_text"], vectorizer)
+        
+        tfidf_columns = [f"tfidf_{i}" for i in range(tfidf_matrix.shape[1])]
+        tfidf_df = pd.DataFrame(tfidf_matrix, columns=tfidf_columns)
+        tfidf_df["email_id"] = df["email_id"].values
+        
+        features_df = features_df.merge(tfidf_df, on="email_id", how="left")
+        
+        logger.info(f"Final feature matrix shape: {features_df.shape}")
+        
+        logger.info("Computing sender domain features")
+        
+        sender_features = df.groupby("sender_domain").agg(
+            email_count=("email_id", "count"),
+            spam_count=("label", lambda x: (x == "spam").sum()),
+            ham_count=("label", lambda x: (x == "ham").sum()),
+        ).reset_index()
+        
+        sender_features["spam_ratio"] = sender_features["spam_count"] / sender_features["email_count"]
+        sender_features["event_timestamp"] = pd.Timestamp.now(tz="UTC")
+        
+        logger.info(f"Computed features for {len(sender_features)} sender domains")
+        
+        email_features_path = f"{OUTPUT_CONTAINER}/{OUTPUT_PATH}/email_features/data.parquet"
+        logger.info(f"Writing email features to {email_features_path}")
+        
+        table = pa.Table.from_pandas(features_df, preserve_index=False)
+        with fs.open(email_features_path, "wb") as f:
+            pq.write_table(table, f)
+        
+        sender_features_path = f"{OUTPUT_CONTAINER}/{OUTPUT_PATH}/sender_features/data.parquet"
+        logger.info(f"Writing sender features to {sender_features_path}")
+        
+        table = pa.Table.from_pandas(sender_features, preserve_index=False)
+        with fs.open(sender_features_path, "wb") as f:
+            pq.write_table(table, f)
+        
+        vectorizer_path = f"{OUTPUT_CONTAINER}/{OUTPUT_PATH}/artifacts/tfidf_vectorizer.pkl"
+        logger.info(f"Saving TF-IDF vectorizer to {vectorizer_path}")
+        
+        vectorizer_bytes = pickle.dumps(vectorizer)
+        with fs.open(vectorizer_path, "wb") as f:
+            f.write(vectorizer_bytes)
+        
+        logger.info("\n=== Feature Extraction Summary ===")
+        logger.info(f"Total emails processed: {len(df)}")
+        logger.info(f"Email features shape: {features_df.shape}")
+        logger.info(f"Sender domains: {len(sender_features)}")
+        logger.info(f"TF-IDF features: {len(tfidf_columns)}")
+        
+        spam_count = (features_df["label"] == "spam").sum()
+        ham_count = (features_df["label"] == "ham").sum()
+        logger.info(f"Class distribution - Spam: {spam_count}, Ham: {ham_count}")
+        
+        logger.info("Feature extraction complete!")
+    
+    
+    if __name__ == "__main__":
+        main()

@@ -1,0 +1,39 @@
+# Example terraform.tfvars file for ML platform
+# Copy this file to terraform.tfvars and update with your values
+
+# Note: Most configuration values are automatically retrieved from 
+# base-infra terraform state via remote state data source.
+# You only need to configure the variables below.
+
+environment  = "dev"
+project_name = "mltraining"
+
+# MLFlow Configuration
+mlflow_enabled   = true
+mlflow_namespace = "mlflow"
+
+# Kubeflow Configuration
+kubeflow_enabled   = true
+kubeflow_namespace = "kubeflow"
+
+# Ray Configuration
+ray_enabled            = true
+ray_namespace          = "ray"
+ray_head_cpu           = "2"
+ray_head_memory        = "8Gi"
+ray_worker_replicas    = 2
+ray_gpu_worker_replicas = 1
+
+# Feast Configuration
+feast_enabled   = true
+feast_namespace = "feast"
+
+# Note: Redis is currently not deployed in base-infra
+# If you enable Redis in base-infra, Feast will automatically use it
+
+# Tags
+tags = {
+  ManagedBy   = "Terraform"
+  Component   = "ML-Platform"
+  Environment = "dev"
+}

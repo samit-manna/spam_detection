@@ -1,0 +1,164 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: drift-detector
+  namespace: monitoring
+  labels:
+    app: drift-detector
+    component: monitoring
+spec:
+  # Run every hour
+  schedule: "0 * * * *"
+  
+  # Concurrency policy - don't start new job if previous is still running
+  concurrencyPolicy: Forbid
+  
+  # Keep history
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  
+  # Job deadline - if job doesn't start within 5 minutes, skip it
+  startingDeadlineSeconds: 300
+  
+  jobTemplate:
+    spec:
+      # TTL for completed jobs
+      ttlSecondsAfterFinished: 3600
+      
+      # Retry on failure
+      backoffLimit: 2
+      
+      template:
+        metadata:
+          labels:
+            app: drift-detector
+          annotations:
+            # Prevent Istio sidecar for batch jobs
+            sidecar.istio.io/inject: "false"
+        spec:
+          restartPolicy: OnFailure
+          
+          # Service account with blob storage access
+          serviceAccountName: drift-detector-sa
+          
+          containers:
+          - name: drift-detector
+            image: ${ACR_NAME}/drift-detector:${IMAGE_TAG}
+            imagePullPolicy: Always
+            
+            command:
+            - python
+            - -m
+            - monitoring.drift_detector.detector
+            args:
+            - --baseline-path
+            - baselines/spam-detector/latest/baseline.json
+            - --inference-logs-path
+            - inference-logs/
+            - --output-path
+            - drift-reports/
+            - --window-hours
+            - "24"
+            - --model-name
+            - spam-detector
+            - --generate-html
+            
+            env:
+            # Azure Storage
+            - name: AZURE_STORAGE_ACCOUNT_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: azure-storage-secret
+                  key: account-name
+            - name: AZURE_STORAGE_ACCOUNT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: azure-storage-secret
+                  key: account-key
+            - name: AZURE_STORAGE_CONTAINER
+              value: "feast"
+            
+            # Drift detection config
+            - name: DRIFT_MODEL_NAME
+              value: "spam-detector"
+            - name: DRIFT_PSI_THRESHOLD
+              value: "0.2"
+            - name: DRIFT_KS_PVALUE_THRESHOLD
+              value: "0.05"
+            - name: DRIFT_SCORE_WARNING_THRESHOLD
+              value: "0.2"
+            - name: DRIFT_SCORE_CRITICAL_THRESHOLD
+              value: "0.5"
+            - name: DRIFT_MIN_SAMPLES
+              value: "100"
+            - name: DRIFT_TOP_FEATURES_COUNT
+              value: "50"
+            
+            # Alerting
+            - name: ALERT_ENABLED
+              value: "true"
+            - name: ALERT_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: alert-webhook-secret
+                  key: url
+                  optional: true
+            
+            resources:
+              requests:
+                memory: "1Gi"
+                cpu: "500m"
+              limits:
+                memory: "4Gi"
+                cpu: "2"
+            
+            # Security context
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 1000
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: false  # Needs to write temp files
+              capabilities:
+                drop:
+                  - ALL
+          
+          # Node selector (optional)
+          # nodeSelector:
+          #   workload-type: batch
+          
+          # Tolerations for batch workloads (optional)
+          # tolerations:
+          # - key: "batch"
+          #   operator: "Equal"
+          #   value: "true"
+          #   effect: "NoSchedule"
+---
+# ServiceAccount for drift detector
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: drift-detector-sa
+  namespace: monitoring
+  labels:
+    app: drift-detector
+---
+# Secret for Azure Storage (placeholder - create with actual values)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: azure-storage-secret
+  namespace: monitoring
+type: Opaque
+stringData:
+  account-name: "${AZURE_STORAGE_ACCOUNT_NAME}"
+  account-key: "${AZURE_STORAGE_ACCOUNT_KEY}"
+---
+# Optional: Webhook secret for alerting
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alert-webhook-secret
+  namespace: monitoring
+type: Opaque
+stringData:
+  url: "${ALERT_WEBHOOK_URL}"

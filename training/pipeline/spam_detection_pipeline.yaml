@@ -1,0 +1,1387 @@
+# PIPELINE DEFINITION
+# Name: spam-detection-training
+# Description: End-to-end spam detection model training pipeline with Feast feature retrieval, baseline training, HPO, and model registration
+# Inputs:
+#    acr_name: str
+#    baseline_model_type: str [Default: 'logistic_regression']
+#    container_name: str [Default: 'datasets']
+#    entity_data_path: str [Default: 'processed/emails/all_emails.parquet']
+#    f1_threshold: float [Default: 0.85]
+#    feast_container_name: str [Default: 'feast']
+#    feast_server_url: str [Default: 'feast-service.feast.svc.cluster.local:6566']
+#    image_tag: str [Default: 'latest']
+#    include_sender_features: bool [Default: True]
+#    max_concurrent_trials: int [Default: 4.0]
+#    mlflow_experiment_name: str [Default: 'spam-detection']
+#    mlflow_tracking_uri: str [Default: 'http://mlflow-service.mlflow.svc.cluster.local:5000']
+#    model_container_name: str [Default: 'models']
+#    model_name: str [Default: 'spam-detector']
+#    num_hpo_trials: int [Default: 20.0]
+#    storage_account: str [Default: 'mltrainingsdevsaqvwjyi']
+#    test_split_ratio: float [Default: 0.2]
+components:
+  comp-baseline-training:
+    executorLabel: exec-baseline-training
+    inputDefinitions:
+      parameters:
+        acr_name:
+          description: Azure Container Registry name
+          parameterType: STRING
+        container_name:
+          description: Azure blob container name
+          parameterType: STRING
+        image_tag:
+          description: Docker image tag
+          parameterType: STRING
+        mlflow_experiment_name:
+          description: Name of MLflow experiment
+          parameterType: STRING
+        mlflow_tracking_uri:
+          description: MLflow tracking server URI
+          parameterType: STRING
+        model_type:
+          description: Type of baseline model
+          parameterType: STRING
+        storage_account:
+          description: Azure storage account name
+          parameterType: STRING
+        train_features_path:
+          description: Blob path to training features parquet
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+      parameters:
+        auc_roc:
+          description: AUC-ROC on validation set
+          parameterType: NUMBER_DOUBLE
+        baseline_model_path:
+          parameterType: STRING
+        f1_score:
+          description: F1 score on validation set
+          parameterType: NUMBER_DOUBLE
+        precision:
+          description: Precision on validation set
+          parameterType: NUMBER_DOUBLE
+        recall:
+          description: Recall on validation set
+          parameterType: NUMBER_DOUBLE
+  comp-data-preparation:
+    executorLabel: exec-data-preparation
+    inputDefinitions:
+      parameters:
+        acr_name:
+          description: Azure Container Registry name
+          parameterType: STRING
+        container_name:
+          description: Azure blob container name
+          parameterType: STRING
+        entity_data_path:
+          description: Path to all_emails.parquet in blob storage
+          parameterType: STRING
+        image_tag:
+          description: Docker image tag
+          parameterType: STRING
+        storage_account:
+          description: Azure storage account name
+          parameterType: STRING
+        test_split_ratio:
+          description: Fraction of data for test set (e.g., 0.2)
+          parameterType: NUMBER_DOUBLE
+    outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+      parameters:
+        spam_ratio:
+          description: Ratio of spam in dataset
+          parameterType: NUMBER_DOUBLE
+        test_count:
+          description: 'Number of test samples  '
+          parameterType: NUMBER_INTEGER
+        test_entity_path:
+          parameterType: STRING
+        train_count:
+          description: Number of training samples
+          parameterType: NUMBER_INTEGER
+        train_entity_path:
+          parameterType: STRING
+  comp-feature-retrieval:
+    executorLabel: exec-feature-retrieval
+    inputDefinitions:
+      parameters:
+        acr_name:
+          description: Azure Container Registry name
+          parameterType: STRING
+        container_name:
+          description: Azure blob container name
+          parameterType: STRING
+        feast_server_url:
+          description: Feast server gRPC endpoint
+          parameterType: STRING
+        image_tag:
+          description: Docker image tag
+          parameterType: STRING
+        include_sender_features:
+          description: Whether to include sender_domain_features
+          parameterType: BOOLEAN
+        storage_account:
+          description: Azure storage account name
+          parameterType: STRING
+        test_entity_path:
+          description: Blob path to test entity parquet
+          parameterType: STRING
+        train_entity_path:
+          description: Blob path to training entity parquet
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+      parameters:
+        feature_count:
+          description: Number of features retrieved
+          parameterType: NUMBER_INTEGER
+        test_features_path:
+          description: Blob path to test features
+          parameterType: STRING
+        test_samples:
+          description: Number of test samples
+          parameterType: NUMBER_INTEGER
+        train_features_path:
+          description: Blob path to training features
+          parameterType: STRING
+        train_samples:
+          description: Number of training samples
+          parameterType: NUMBER_INTEGER
+  comp-hpo-tuning:
+    executorLabel: exec-hpo-tuning
+    inputDefinitions:
+      parameters:
+        acr_name:
+          description: Azure Container Registry name
+          parameterType: STRING
+        container_name:
+          description: Azure blob container name
+          parameterType: STRING
+        image_tag:
+          description: Docker image tag
+          parameterType: STRING
+        max_concurrent_trials:
+          description: Maximum concurrent trials
+          parameterType: NUMBER_INTEGER
+        mlflow_experiment_name:
+          description: Name of MLflow experiment
+          parameterType: STRING
+        mlflow_tracking_uri:
+          description: MLflow tracking server URI
+          parameterType: STRING
+        num_trials:
+          description: Number of HPO trials to run
+          parameterType: NUMBER_INTEGER
+        storage_account:
+          description: Azure storage account name
+          parameterType: STRING
+        train_features_path:
+          description: Blob path to training features parquet
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+      parameters:
+        best_f1:
+          description: Best F1 score achieved
+          parameterType: NUMBER_DOUBLE
+        best_model_path:
+          parameterType: STRING
+        best_params:
+          description: JSON string of best hyperparameters
+          parameterType: STRING
+  comp-model-evaluation:
+    executorLabel: exec-model-evaluation
+    inputDefinitions:
+      parameters:
+        acr_name:
+          description: Azure Container Registry name
+          parameterType: STRING
+        best_model_path:
+          description: Blob path to best model pickle
+          parameterType: STRING
+        container_name:
+          description: Azure blob container name
+          parameterType: STRING
+        f1_threshold:
+          description: Minimum F1 score to register model
+          parameterType: NUMBER_DOUBLE
+        image_tag:
+          description: Docker image tag
+          parameterType: STRING
+        mlflow_experiment_name:
+          description: Name of MLflow experiment
+          parameterType: STRING
+        mlflow_tracking_uri:
+          description: MLflow tracking server URI
+          parameterType: STRING
+        model_name:
+          description: Name for model registry
+          parameterType: STRING
+        storage_account:
+          description: Azure storage account name
+          parameterType: STRING
+        test_features_path:
+          description: Blob path to test features parquet
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+      parameters:
+        model_version:
+          description: Version number if registered, else empty string
+          parameterType: STRING
+        registered:
+          description: Whether model was registered
+          parameterType: BOOLEAN
+        test_f1:
+          description: F1 score on test set
+          parameterType: NUMBER_DOUBLE
+deploymentSpec:
+  executors:
+    exec-baseline-training:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - baseline_training
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.14.1'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef baseline_training(\n    acr_name: str,\n    image_tag: str,\n\
+          \    train_features_path: str,\n    storage_account: str,\n    container_name:\
+          \ str,\n    mlflow_tracking_uri: str,\n    mlflow_experiment_name: str,\n\
+          \    model_type: str,  # \"logistic_regression\" or \"random_forest\"\n\
+          \    metrics: Output[Metrics],\n) -> NamedTuple(\"Outputs\", [(\"f1_score\"\
+          , float), (\"precision\", float), (\"recall\", float), (\"auc_roc\", float),\
+          \ (\"baseline_model_path\", str)]):\n    \"\"\"\n    Train a baseline model\
+          \ for spam detection.\n\n    Args:\n        acr_name: Azure Container Registry\
+          \ name\n        image_tag: Docker image tag\n        train_features_path:\
+          \ Blob path to training features parquet\n        storage_account: Azure\
+          \ storage account name\n        container_name: Azure blob container name\n\
+          \        mlflow_tracking_uri: MLflow tracking server URI\n        mlflow_experiment_name:\
+          \ Name of MLflow experiment\n        model_type: Type of baseline model\n\
+          \        baseline_model_path: Output path for model artifact\n        metrics:\
+          \ Output metrics object\n\n    Returns:\n        f1_score: F1 score on validation\
+          \ set\n        precision: Precision on validation set\n        recall: Recall\
+          \ on validation set\n        auc_roc: AUC-ROC on validation set\n    \"\"\
+          \"\n    import os\n    import pickle\n    import io\n\n    # Suppress git\
+          \ warning from MLflow\n    os.environ[\"GIT_PYTHON_REFRESH\"] = \"quiet\"\
+          \n\n    import mlflow\n    import mlflow.sklearn\n    import numpy as np\n\
+          \    import pandas as pd\n    from sklearn.linear_model import LogisticRegression\n\
+          \    from sklearn.ensemble import RandomForestClassifier\n    from sklearn.model_selection\
+          \ import train_test_split\n    from sklearn.metrics import (\n        accuracy_score,\n\
+          \        precision_score,\n        recall_score,\n        f1_score as sklearn_f1_score,\n\
+          \        roc_auc_score,\n        classification_report,\n    )\n    from\
+          \ sklearn.preprocessing import StandardScaler\n    from azure.storage.blob\
+          \ import BlobServiceClient\n\n    # Initialize Azure Blob client\n    connection_string\
+          \ = os.environ.get(\"AZURE_STORAGE_CONNECTION_STRING\")\n    blob_service\
+          \ = BlobServiceClient.from_connection_string(connection_string)\n\n    storage_options\
+          \ = {\"connection_string\": connection_string}\n\n    # Use abfs:// protocol\
+          \ for reading\n    read_path = f\"abfs://{train_features_path}\"\n    print(f\"\
+          Reading training features from: {read_path}\")\n\n    storage_options =\
+          \ {\"connection_string\": connection_string}\n    df = pd.read_parquet(read_path,\
+          \ storage_options=storage_options)\n\n    print(f\"Loaded {len(df)} samples\
+          \ with {len(df.columns)} columns\")\n    print(f\"Columns: {df.columns.tolist()[:20]}...\"\
+          )\n\n    # Prepare features and labels\n    # Exclude entity columns, label,\
+          \ and any timestamp/metadata columns\n    exclude_cols = [\"email_id\",\
+          \ \"sender_domain\", \"event_timestamp\", \"label\", \n                \
+          \    \"event_timestamp_feat\", \"created_timestamp\"]\n\n    # Filter to\
+          \ only numeric columns and exclude the above\n    numeric_cols = df.select_dtypes(include=[\"\
+          float64\", \"float32\", \"int64\", \"int32\"]).columns\n    feature_cols\
+          \ = [c for c in numeric_cols if c not in exclude_cols]\n\n    print(f\"\
+          Selected {len(feature_cols)} numeric feature columns\")\n\n    # Verify\
+          \ label column exists and extract it\n    if \"label\" not in df.columns:\n\
+          \        raise ValueError(\"Label column not found in dataframe\")\n\n \
+          \   X = df[feature_cols].values\n    y = df[\"label\"].values\n\n    # Encode\
+          \ labels if they are strings\n    if y.dtype == 'object' or y.dtype.name\
+          \ == 'string':\n        print(f\"Converting string labels to binary. Unique\
+          \ values: {np.unique(y)}\")\n        # Map spam/ham to 1/0\n        label_map\
+          \ = {\"ham\": 0, \"spam\": 1, 0: 0, 1: 1}\n        y = np.array([label_map.get(label,\
+          \ label) for label in y])\n        print(f\"After encoding: {np.unique(y)}\"\
+          )\n\n    print(f\"Features shape: {X.shape}\")\n    print(f\"Label distribution:\
+          \ {np.bincount(y)}\")\n\n    # Train/validation split (from training set)\n\
+          \    X_train, X_val, y_train, y_val = train_test_split(\n        X, y, test_size=0.2,\
+          \ stratify=y, random_state=42\n    )\n\n    print(f\"Training subset: {len(X_train)}\
+          \ samples\")\n    print(f\"Validation subset: {len(X_val)} samples\")\n\n\
+          \    # Scale features\n    scaler = StandardScaler()\n    X_train_scaled\
+          \ = scaler.fit_transform(X_train)\n    X_val_scaled = scaler.transform(X_val)\n\
+          \n    # Handle NaN/Inf values\n    X_train_scaled = np.nan_to_num(X_train_scaled,\
+          \ nan=0.0, posinf=0.0, neginf=0.0)\n    X_val_scaled = np.nan_to_num(X_val_scaled,\
+          \ nan=0.0, posinf=0.0, neginf=0.0)\n\n    # Select model\n    if model_type\
+          \ == \"logistic_regression\":\n        model = LogisticRegression(\n   \
+          \         max_iter=1000,\n            class_weight=\"balanced\",\n     \
+          \       random_state=42,\n            n_jobs=-1,\n            solver=\"\
+          saga\",  # Better for high-dimensional data\n        )\n        model_params\
+          \ = {\n            \"model_type\": \"logistic_regression\",\n          \
+          \  \"max_iter\": 1000,\n            \"class_weight\": \"balanced\",\n  \
+          \          \"solver\": \"saga\",\n        }\n    elif model_type == \"random_forest\"\
+          :\n        model = RandomForestClassifier(\n            n_estimators=100,\n\
+          \            max_depth=15,\n            class_weight=\"balanced\",\n   \
+          \         random_state=42,\n            n_jobs=-1,\n        )\n        model_params\
+          \ = {\n            \"model_type\": \"random_forest\",\n            \"n_estimators\"\
+          : 100,\n            \"max_depth\": 15,\n            \"class_weight\": \"\
+          balanced\",\n        }\n    else:\n        raise ValueError(f\"Unknown model\
+          \ type: {model_type}\")\n\n    # Set up MLflow\n    mlflow.set_tracking_uri(mlflow_tracking_uri)\n\
+          \    mlflow.set_experiment(mlflow_experiment_name)\n\n    # Train model\
+          \ with MLflow tracking\n    with mlflow.start_run(run_name=f\"baseline_{model_type}\"\
+          ):\n        # Log parameters\n        mlflow.log_params(model_params)\n\
+          \        mlflow.log_param(\"num_features\", len(feature_cols))\n       \
+          \ mlflow.log_param(\"train_samples\", len(X_train))\n        mlflow.log_param(\"\
+          val_samples\", len(X_val))\n\n        # Train\n        print(f\"Training\
+          \ {model_type} model...\")\n        model.fit(X_train_scaled, y_train)\n\
+          \n        # Predict\n        y_pred = model.predict(X_val_scaled)\n    \
+          \    y_pred_proba = model.predict_proba(X_val_scaled)[:, 1]\n\n        #\
+          \ Calculate metrics\n        accuracy = accuracy_score(y_val, y_pred)\n\
+          \        precision = precision_score(y_val, y_pred)\n        recall = recall_score(y_val,\
+          \ y_pred)\n        f1 = sklearn_f1_score(y_val, y_pred)\n        auc_roc\
+          \ = roc_auc_score(y_val, y_pred_proba)\n\n        print(f\"\\nValidation\
+          \ Results:\")\n        print(f\"  Accuracy: {accuracy:.4f}\")\n        print(f\"\
+          \  Precision: {precision:.4f}\")\n        print(f\"  Recall: {recall:.4f}\"\
+          )\n        print(f\"  F1 Score: {f1:.4f}\")\n        print(f\"  AUC-ROC:\
+          \ {auc_roc:.4f}\")\n\n        # Log metrics to MLflow\n        mlflow.log_metric(\"\
+          accuracy\", accuracy)\n        mlflow.log_metric(\"precision\", precision)\n\
+          \        mlflow.log_metric(\"recall\", recall)\n        mlflow.log_metric(\"\
+          f1_score\", f1)\n        mlflow.log_metric(\"auc_roc\", auc_roc)\n\n   \
+          \     # Log classification report\n        report = classification_report(y_val,\
+          \ y_pred)\n        print(f\"\\nClassification Report:\\n{report}\")\n\n\
+          \        # Save report to file and log as artifact (avoid mlflow.log_text\
+          \ issues)\n        try:\n            report_path = \"/tmp/classification_report.txt\"\
+          \n            with open(report_path, \"w\") as f:\n                f.write(report)\n\
+          \            mlflow.log_artifact(report_path)\n        except Exception\
+          \ as e:\n            print(f\"Warning: Could not log classification report\
+          \ to MLflow: {e}\")\n\n        # Log feature importance (for tree-based\
+          \ models)\n        if hasattr(model, \"feature_importances_\"):\n      \
+          \      importance_df = pd.DataFrame({\n                \"feature\": feature_cols,\n\
+          \                \"importance\": model.feature_importances_,\n         \
+          \   }).sort_values(\"importance\", ascending=False)\n\n            print(f\"\
+          \\nTop 20 Important Features:\")\n            print(importance_df.head(20))\n\
+          \n            try:\n                importance_path = \"/tmp/feature_importance.csv\"\
+          \n                importance_df.to_csv(importance_path, index=False)\n \
+          \               mlflow.log_artifact(importance_path)\n            except\
+          \ Exception as e:\n                print(f\"Warning: Could not log feature\
+          \ importance to MLflow: {e}\")\n\n        # Log model to MLflow\n      \
+          \  try:\n            mlflow.sklearn.log_model(model, artifact_path=\"model\"\
+          )\n            mlflow.sklearn.log_model(scaler, artifact_path=\"scaler\"\
+          )\n            print(\"Successfully logged model and scaler to MLflow\"\
+          )\n        except Exception as e:\n            print(f\"Warning: Could not\
+          \ log model to MLflow: {e}\")\n            print(\"Continuing with blob\
+          \ storage upload...\")\n\n        run_id = mlflow.active_run().info.run_id\n\
+          \        print(f\"\\nMLflow run ID: {run_id}\")\n\n    # Save model to blob\
+          \ storage using BlobServiceClient\n    container_client = blob_service.get_container_client(container_name)\n\
+          \n    model_blob_path = f\"baseline/{model_type}/model.pkl\"\n    scaler_blob_path\
+          \ = f\"baseline/{model_type}/scaler.pkl\"\n\n    # Upload model\n    model_bytes\
+          \ = pickle.dumps(model)\n    container_client.upload_blob(model_blob_path,\
+          \ model_bytes, overwrite=True)\n\n    # Upload scaler  \n    scaler_bytes\
+          \ = pickle.dumps(scaler)\n    container_client.upload_blob(scaler_blob_path,\
+          \ scaler_bytes, overwrite=True)\n\n    model_output_path = f\"{container_name}/{model_blob_path}\"\
+          \n    print(f\"\\nSaved model to: {model_output_path}\")\n\n    # Log output\
+          \ metrics\n    metrics.log_metric(\"f1_score\", f1)\n    metrics.log_metric(\"\
+          precision\", precision)\n    metrics.log_metric(\"recall\", recall)\n  \
+          \  metrics.log_metric(\"auc_roc\", auc_roc)\n    metrics.log_metric(\"accuracy\"\
+          , accuracy)\n\n    from collections import namedtuple\n    outputs = namedtuple(\"\
+          Outputs\", [\"f1_score\", \"precision\", \"recall\", \"auc_roc\", \"baseline_model_path\"\
+          ])\n    return outputs(float(f1), float(precision), float(recall), float(auc_roc),\
+          \ model_output_path)\n\n"
+        image: mltrainingsdevacrqvwjyi.azurecr.io/ml-mlflow-ops:latest
+    exec-data-preparation:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - data_preparation
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.14.1'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef data_preparation(\n    acr_name: str,\n    image_tag: str,\n\
+          \    entity_data_path: str,  # datasets/processed/emails/all_emails.parquet\n\
+          \    storage_account: str,   # mltrainingsdevsajvnm5w\n    container_name:\
+          \ str,    # feast\n    test_split_ratio: float,\n    metrics: Output[Metrics],\n\
+          ) -> NamedTuple(\"Outputs\", [(\"train_count\", int), (\"test_count\", int),\
+          \ (\"spam_ratio\", float), (\"train_entity_path\", str), (\"test_entity_path\"\
+          , str)]):\n    \"\"\"\n    Prepare entity dataframes for Feast feature retrieval.\n\
+          \n    Reads the processed email data, extracts entity columns (email_id,\
+          \ \n    sender_domain, event_timestamp, label), and performs stratified\
+          \ \n    train/test split.\n\n    Args:\n        acr_name: Azure Container\
+          \ Registry name\n        image_tag: Docker image tag\n        entity_data_path:\
+          \ Path to all_emails.parquet in blob storage\n        storage_account: Azure\
+          \ storage account name\n        container_name: Azure blob container name\n\
+          \        test_split_ratio: Fraction of data for test set (e.g., 0.2)\n \
+          \       train_entity_path: Output path for training entity parquet\n   \
+          \     test_entity_path: Output path for test entity parquet\n        metrics:\
+          \ Output metrics object\n\n    Returns:\n        train_count: Number of\
+          \ training samples\n        test_count: Number of test samples  \n     \
+          \   spam_ratio: Ratio of spam in dataset\n    \"\"\"\n    import os\n  \
+          \  import pandas as pd\n    from sklearn.model_selection import train_test_split\n\
+          \    from datetime import datetime\n\n    # Get connection string\n    connection_string\
+          \ = os.environ.get(\"AZURE_STORAGE_CONNECTION_STRING\")\n    if not connection_string:\n\
+          \        raise ValueError(\"AZURE_STORAGE_CONNECTION_STRING environment\
+          \ variable not set\")\n\n    print(f\"Storage account: {storage_account}\"\
+          )\n    print(f\"Container: {container_name}\")\n    print(f\"Entity data\
+          \ path: {entity_data_path}\")\n\n    # Use pandas with fsspec for reading\
+          \ from Azure\n    # The abfs:// protocol works with adlfs backend\n    #\
+          \ Format: abfs://container/path\n    read_path = f\"abfs://{container_name}/{entity_data_path}\"\
+          \n    print(f\"Reading from: {read_path}\")\n\n    storage_options = {\n\
+          \        \"connection_string\": connection_string\n    }\n\n    # Read the\
+          \ parquet file\n    try:\n        df = pd.read_parquet(read_path, storage_options=storage_options)\n\
+          \        print(f\"Successfully loaded {len(df)} records\")\n    except Exception\
+          \ as e:\n        print(f\"Error reading with abfs://: {e}\")\n\n       \
+          \ # Try alternative: abfss:// (ADLS Gen2 secure)\n        read_path_secure\
+          \ = f\"abfss://{container_name}@{storage_account}.dfs.core.windows.net/{entity_data_path}\"\
+          \n        print(f\"Trying secure path: {read_path_secure}\")\n\n       \
+          \ try:\n            df = pd.read_parquet(read_path_secure, storage_options=storage_options)\n\
+          \            print(f\"Successfully loaded {len(df)} records using abfss://\"\
+          )\n        except Exception as e2:\n            print(f\"Error reading with\
+          \ abfss://: {e2}\")\n\n            # Last attempt: use Azure Blob directly\n\
+          \            print(\"Trying direct Azure Blob read...\")\n            from\
+          \ azure.storage.blob import BlobServiceClient\n            import io\n\n\
+          \            blob_service = BlobServiceClient.from_connection_string(connection_string)\n\
+          \            container_client = blob_service.get_container_client(container_name)\n\
+          \            blob_client = container_client.get_blob_client(entity_data_path)\n\
+          \n            # Download to memory\n            blob_data = blob_client.download_blob().readall()\n\
+          \            df = pd.read_parquet(io.BytesIO(blob_data))\n            print(f\"\
+          Successfully loaded {len(df)} records using BlobServiceClient\")\n\n   \
+          \ print(f\"Columns: {df.columns.tolist()}\")\n\n    # Validate required\
+          \ columns\n    required_columns = [\"email_id\", \"label\"]\n    missing_columns\
+          \ = set(required_columns) - set(df.columns)\n    if missing_columns:\n \
+          \       raise ValueError(f\"Missing required columns: {missing_columns}\"\
+          )\n\n    # Check for event_timestamp, create if missing\n    if \"event_timestamp\"\
+          \ not in df.columns:\n        print(\"Warning: event_timestamp not found,\
+          \ creating default timestamps\")\n        df[\"event_timestamp\"] = datetime.utcnow()\n\
+          \n    # Check for sender_domain\n    has_sender_domain = \"sender_domain\"\
+          \ in df.columns\n    if not has_sender_domain:\n        print(\"Warning:\
+          \ sender_domain not found, will skip sender_domain_features\")\n\n    #\
+          \ Select entity columns\n    entity_columns = [\"email_id\", \"event_timestamp\"\
+          , \"label\"]\n    if has_sender_domain:\n        entity_columns.append(\"\
+          sender_domain\")\n\n    entity_df = df[entity_columns].copy()\n\n    # Ensure\
+          \ event_timestamp is datetime\n    entity_df[\"event_timestamp\"] = pd.to_datetime(entity_df[\"\
+          event_timestamp\"])\n\n    # Encode labels if they are strings\n    if entity_df[\"\
+          label\"].dtype == 'object':\n        print(f\"Converting string labels to\
+          \ binary: {entity_df['label'].unique()}\")\n        entity_df[\"label\"\
+          ] = entity_df[\"label\"].map({\"ham\": 0, \"spam\": 1})\n        print(f\"\
+          After encoding: {entity_df['label'].unique()}\")\n\n    # Data quality checks\n\
+          \    null_counts = entity_df.isnull().sum()\n    if null_counts.any():\n\
+          \        print(f\"Warning: Null values found:\\n{null_counts[null_counts\
+          \ > 0]}\")\n        entity_df = entity_df.dropna(subset=[\"email_id\", \"\
+          label\"])\n        print(f\"After dropping nulls: {len(entity_df)} records\"\
+          )\n\n    # Validate labels are binary\n    unique_labels = entity_df[\"\
+          label\"].unique()\n    if not set(unique_labels).issubset({0, 1}):\n   \
+          \     raise ValueError(f\"Labels must be binary (0 or 1), found: {unique_labels}\"\
+          )\n\n    # Calculate statistics\n    spam_ratio = entity_df[\"label\"].mean()\n\
+          \    print(f\"Spam ratio: {spam_ratio:.2%}\")\n    print(f\"Class distribution:\\\
+          n{entity_df['label'].value_counts()}\")\n\n    # Stratified train/test split\n\
+          \    train_df, test_df = train_test_split(\n        entity_df,\n       \
+          \ test_size=test_split_ratio,\n        stratify=entity_df[\"label\"],\n\
+          \        random_state=42,\n    )\n\n    print(f\"Train set: {len(train_df)}\
+          \ samples (spam ratio: {train_df['label'].mean():.2%})\")\n    print(f\"\
+          Test set: {len(test_df)} samples (spam ratio: {test_df['label'].mean():.2%})\"\
+          )\n\n    # Write outputs to blob storage\n    train_output_path = f\"abfs://{container_name}/training/train_entities.parquet\"\
+          \n    test_output_path = f\"abfs://{container_name}/training/test_entities.parquet\"\
+          \n\n    print(f\"Writing training entities to: {train_output_path}\")\n\
+          \    train_df.to_parquet(train_output_path, storage_options=storage_options,\
+          \ index=False)\n\n    print(f\"Writing test entities to: {test_output_path}\"\
+          )\n    test_df.to_parquet(test_output_path, storage_options=storage_options,\
+          \ index=False)\n\n    # Return paths for downstream components\n    train_path_output\
+          \ = f\"{container_name}/training/train_entities.parquet\"\n    test_path_output\
+          \ = f\"{container_name}/training/test_entities.parquet\"\n\n    # Log metrics\n\
+          \    metrics.log_metric(\"train_samples\", len(train_df))\n    metrics.log_metric(\"\
+          test_samples\", len(test_df))\n    metrics.log_metric(\"spam_ratio\", spam_ratio)\n\
+          \    metrics.log_metric(\"total_samples\", len(entity_df))\n    metrics.log_metric(\"\
+          has_sender_domain\", int(has_sender_domain))\n\n    from collections import\
+          \ namedtuple\n    outputs = namedtuple(\"Outputs\", [\"train_count\", \"\
+          test_count\", \"spam_ratio\", \"train_entity_path\", \"test_entity_path\"\
+          ])\n    return outputs(len(train_df), len(test_df), float(spam_ratio), train_path_output,\
+          \ test_path_output)\n\n"
+        image: mltrainingsdevacrqvwjyi.azurecr.io/ml-data-prep:latest
+    exec-feature-retrieval:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - feature_retrieval
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.14.1'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef feature_retrieval(\n    acr_name: str,\n    image_tag: str,\n\
+          \    train_entity_path: str,\n    test_entity_path: str,\n    feast_server_url:\
+          \ str,  # feast-service.feast.svc.cluster.local:6566\n    storage_account:\
+          \ str,\n    container_name: str,\n    include_sender_features: bool,\n \
+          \   metrics: Output[Metrics],\n) -> NamedTuple(\"Outputs\", [(\"feature_count\"\
+          , int), (\"train_samples\", int), (\"test_samples\", int), (\"train_features_path\"\
+          , str), (\"test_features_path\", str)]):\n    \"\"\"\n    Retrieve features\
+          \ from Feast for training and test entity dataframes.\n\n    Args:\n   \
+          \     acr_name: Azure Container Registry name\n        image_tag: Docker\
+          \ image tag\n        train_entity_path: Blob path to training entity parquet\n\
+          \        test_entity_path: Blob path to test entity parquet\n        feast_server_url:\
+          \ Feast server gRPC endpoint\n        storage_account: Azure storage account\
+          \ name\n        container_name: Azure blob container name\n        include_sender_features:\
+          \ Whether to include sender_domain_features\n        metrics: Output metrics\
+          \ object\n\n    Returns:\n        feature_count: Number of features retrieved\n\
+          \        train_samples: Number of training samples\n        test_samples:\
+          \ Number of test samples\n        train_features_path: Blob path to training\
+          \ features\n        test_features_path: Blob path to test features\n   \
+          \ \"\"\"\n    import os\n    import pandas as pd\n    from feast import\
+          \ FeatureStore\n\n    # Get connection string\n    connection_string = os.environ.get(\"\
+          AZURE_STORAGE_CONNECTION_STRING\")\n    if not connection_string:\n    \
+          \    raise ValueError(\"AZURE_STORAGE_CONNECTION_STRING environment variable\
+          \ not set\")\n\n    storage_options = {\n        \"connection_string\":\
+          \ connection_string\n    }\n\n    print(f\"Train entity path: {train_entity_path}\"\
+          )\n    print(f\"Test entity path: {test_entity_path}\")\n\n    # Load entity\
+          \ dataframes with fallback logic\n    read_path = f\"abfs://{train_entity_path}\"\
+          \n    print(f\"Reading train entities from: {read_path}\")\n\n    try:\n\
+          \        train_entity_df = pd.read_parquet(read_path, storage_options=storage_options)\n\
+          \        print(f\"Train entities: {len(train_entity_df)} samples\")\n  \
+          \  except Exception as e:\n        print(f\"Error reading with abfs://:\
+          \ {e}\")\n\n        # Try abfss://\n        read_path_secure = f\"abfss://{train_entity_path.replace('/',\
+          \ '@' + storage_account + '.dfs.core.windows.net/', 1)}\"\n        print(f\"\
+          Trying: {read_path_secure}\")\n\n        try:\n            train_entity_df\
+          \ = pd.read_parquet(read_path_secure, storage_options=storage_options)\n\
+          \            print(f\"Train entities: {len(train_entity_df)} samples using\
+          \ abfss://\")\n        except Exception as e2:\n            print(f\"Error\
+          \ reading with abfss://: {e2}\")\n\n            # Last attempt: BlobServiceClient\n\
+          \            print(\"Trying direct Azure Blob read...\")\n            from\
+          \ azure.storage.blob import BlobServiceClient\n            import io\n\n\
+          \            blob_service = BlobServiceClient.from_connection_string(connection_string)\n\
+          \            parts = train_entity_path.split('/', 1)\n            container\
+          \ = parts[0]\n            path = parts[1] if len(parts) > 1 else \"\"\n\n\
+          \            container_client = blob_service.get_container_client(container)\n\
+          \            blob_client = container_client.get_blob_client(path)\n    \
+          \        blob_data = blob_client.download_blob().readall()\n           \
+          \ train_entity_df = pd.read_parquet(io.BytesIO(blob_data))\n           \
+          \ print(f\"Train entities: {len(train_entity_df)} samples using BlobServiceClient\"\
+          )\n\n    # Load test entities (same fallback logic)\n    read_path = f\"\
+          abfs://{test_entity_path}\"\n    print(f\"Reading test entities from: {read_path}\"\
+          )\n\n    try:\n        test_entity_df = pd.read_parquet(read_path, storage_options=storage_options)\n\
+          \        print(f\"Test entities: {len(test_entity_df)} samples\")\n    except\
+          \ Exception as e:\n        print(f\"Error reading with abfs://: {e}\")\n\
+          \n        # Try abfss://\n        read_path_secure = f\"abfss://{test_entity_path.replace('/',\
+          \ '@' + storage_account + '.dfs.core.windows.net/', 1)}\"\n        print(f\"\
+          Trying: {read_path_secure}\")\n\n        try:\n            test_entity_df\
+          \ = pd.read_parquet(read_path_secure, storage_options=storage_options)\n\
+          \            print(f\"Test entities: {len(test_entity_df)} samples using\
+          \ abfss://\")\n        except Exception as e2:\n            print(f\"Error\
+          \ reading with abfss://: {e2}\")\n\n            # Last attempt: BlobServiceClient\n\
+          \            print(\"Trying direct Azure Blob read...\")\n            from\
+          \ azure.storage.blob import BlobServiceClient\n            import io\n\n\
+          \            blob_service = BlobServiceClient.from_connection_string(connection_string)\n\
+          \            parts = test_entity_path.split('/', 1)\n            container\
+          \ = parts[0]\n            path = parts[1] if len(parts) > 1 else \"\"\n\n\
+          \            container_client = blob_service.get_container_client(container)\n\
+          \            blob_client = container_client.get_blob_client(path)\n    \
+          \        blob_data = blob_client.download_blob().readall()\n           \
+          \ test_entity_df = pd.read_parquet(io.BytesIO(blob_data))\n            print(f\"\
+          Test entities: {len(test_entity_df)} samples using BlobServiceClient\")\n\
+          \n    print(f\"Entity columns: {train_entity_df.columns.tolist()}\")\n\n\
+          \    # For offline features, read directly from parquet files\n    # Remote\
+          \ Feast server is for online serving only\n    print(f\"Using direct offline\
+          \ store access (parquet files)\")\n    print(f\"Features stored in: {container_name}/features/\"\
+          )\n\n    # Define feature references for all feature views\n    # Email\
+          \ features (entity: email_id)\n    email_features = [\n        # email_text_features\
+          \ (8 features)\n        \"email_text_features:url_count\",\n        \"email_text_features:uppercase_ratio\"\
+          ,\n        \"email_text_features:exclamation_count\",\n        \"email_text_features:question_mark_count\"\
+          ,\n        \"email_text_features:word_count\",\n        \"email_text_features:char_count\"\
+          ,\n        \"email_text_features:spam_keyword_count\",\n        \"email_text_features:has_unsubscribe\"\
+          ,\n\n        # email_structural_features (8 features)\n        \"email_structural_features:has_html\"\
+          ,\n        \"email_structural_features:html_to_text_ratio\",\n        \"\
+          email_structural_features:subject_length\",\n        \"email_structural_features:subject_has_re\"\
+          ,\n        \"email_structural_features:subject_has_fwd\",\n        \"email_structural_features:has_x_mailer\"\
+          ,\n        \"email_structural_features:sender_domain_length\",\n       \
+          \ \"email_structural_features:received_hop_count\",\n\n        # email_temporal_features\
+          \ (4 features)\n        \"email_temporal_features:hour_of_day\",\n     \
+          \   \"email_temporal_features:day_of_week\",\n        \"email_temporal_features:is_weekend\"\
+          ,\n        \"email_temporal_features:is_night_hour\",\n    ]\n\n    # Add\
+          \ TF-IDF features (500 features)\n    tfidf_features = [f\"email_tfidf_features:tfidf_{i}\"\
+          \ for i in range(500)]\n    email_features.extend(tfidf_features)\n\n  \
+          \  # Sender domain features (entity: sender_domain)\n    sender_features\
+          \ = []\n    if include_sender_features and \"sender_domain\" in train_entity_df.columns:\n\
+          \        sender_features = [\n            \"sender_domain_features:email_count\"\
+          ,\n            \"sender_domain_features:spam_count\",\n            \"sender_domain_features:ham_count\"\
+          ,\n            \"sender_domain_features:spam_ratio\",\n        ]\n     \
+          \   print(\"Including sender_domain_features\")\n    else:\n        print(\"\
+          Skipping sender_domain_features\")\n\n    all_features = email_features\
+          \ + sender_features\n    print(f\"Total features to retrieve: {len(all_features)}\"\
+          )\n\n    def retrieve_features(entity_df: pd.DataFrame, dataset_name: str)\
+          \ -> pd.DataFrame:\n        \"\"\"Retrieve features for a given entity dataframe\
+          \ from parquet files.\"\"\"\n        print(f\"\\nRetrieving features for\
+          \ {dataset_name}...\")\n\n        feast_entity_df = entity_df.copy()\n \
+          \       feast_entity_df[\"event_timestamp\"] = pd.to_datetime(feast_entity_df[\"\
+          event_timestamp\"])\n\n        # Read features directly from offline store\
+          \ parquet files\n        feature_df = feast_entity_df.copy()\n\n       \
+          \ # Read email features parquet\n        email_features_path = f\"abfs://{container_name}/features/email_features/data.parquet\"\
+          \n        print(f\"Reading email features from: {email_features_path}\"\
+          )\n\n        try:\n            email_feat_df = pd.read_parquet(email_features_path,\
+          \ storage_options=storage_options)\n            print(f\"Email features\
+          \ shape: {email_feat_df.shape}\")\n            print(f\"Email features columns\
+          \ (first 10): {email_feat_df.columns.tolist()[:10]}\")\n\n            #\
+          \ Merge on email_id\n            feature_df = feature_df.merge(\n      \
+          \          email_feat_df,\n                on=\"email_id\",\n          \
+          \      how=\"left\",\n                suffixes=('', '_feat')\n         \
+          \   )\n            print(f\"After email features merge: {feature_df.shape}\"\
+          )\n\n        except Exception as e2:\n            print(f\"Error reading\
+          \ email features: {e2}\")\n            raise\n\n        # Read sender features\
+          \ if needed\n        if include_sender_features and \"sender_domain\" in\
+          \ feast_entity_df.columns:\n            sender_features_path = f\"abfs://{container_name}/features/sender_features/data.parquet\"\
+          \n            print(f\"Reading sender features from: {sender_features_path}\"\
+          )\n\n            try:\n                sender_feat_df = pd.read_parquet(sender_features_path,\
+          \ storage_options=storage_options)\n                print(f\"Sender features\
+          \ shape: {sender_feat_df.shape}\")\n\n                # Merge on sender_domain\n\
+          \                feature_df = feature_df.merge(\n                    sender_feat_df,\n\
+          \                    on=\"sender_domain\",\n                    how=\"left\"\
+          ,\n                    suffixes=('', '_sender')\n                )\n   \
+          \             print(f\"After sender features merge: {feature_df.shape}\"\
+          )\n\n            except Exception as e3:\n                print(f\"Error\
+          \ reading sender features: {e3}\")\n                # Continue without sender\
+          \ features\n                pass\n\n        return feature_df\n\n    # Retrieve\
+          \ features for train and test sets\n    train_features_df = retrieve_features(train_entity_df,\
+          \ \"training\")\n    test_features_df = retrieve_features(test_entity_df,\
+          \ \"test\")\n\n    # Check for nulls and handle them\n    train_null_counts\
+          \ = train_features_df.isnull().sum()\n    if train_null_counts.any():\n\
+          \        null_cols = train_null_counts[train_null_counts > 0]\n        print(f\"\
+          \\nWarning: Null values in training data:\\n{null_cols.head(10)}\")\n\n\
+          \        # Fill numeric nulls with 0\n        numeric_cols = train_features_df.select_dtypes(include=[\"\
+          float64\", \"float32\", \"int64\", \"int32\"]).columns\n        train_features_df[numeric_cols]\
+          \ = train_features_df[numeric_cols].fillna(0)\n        test_features_df[numeric_cols]\
+          \ = test_features_df[numeric_cols].fillna(0)\n\n    # Count actual features\
+          \ (exclude entity columns, label, and duplicate suffixes)\n    exclude_cols\
+          \ = [\"email_id\", \"sender_domain\", \"event_timestamp\", \"label\", \"\
+          event_timestamp_feat\", \"created_timestamp\"]\n    feature_cols = [c for\
+          \ c in train_features_df.columns if c not in exclude_cols and not c.endswith('_feat')\
+          \ and not c.endswith('_sender')]\n    feature_count = len(feature_cols)\n\
+          \n    print(f\"\\nFinal feature count: {feature_count}\")\n    print(f\"\
+          Train shape: {train_features_df.shape}\")\n    print(f\"Test shape: {test_features_df.shape}\"\
+          )\n\n    # Write outputs to blob storage\n    train_output_path = f\"abfs://{container_name}/training/train_features.parquet\"\
+          \n    test_output_path = f\"abfs://{container_name}/training/test_features.parquet\"\
+          \n\n    print(f\"Writing training features to: {train_output_path}\")\n\
+          \    train_features_df.to_parquet(train_output_path, storage_options=storage_options,\
+          \ index=False)\n\n    print(f\"Writing test features to: {test_output_path}\"\
+          )\n    test_features_df.to_parquet(test_output_path, storage_options=storage_options,\
+          \ index=False)\n\n    # Return paths for downstream components\n    train_path_output\
+          \ = f\"{container_name}/training/train_features.parquet\"\n    test_path_output\
+          \ = f\"{container_name}/training/test_features.parquet\"\n\n    # Log metrics\n\
+          \    metrics.log_metric(\"feature_count\", feature_count)\n    metrics.log_metric(\"\
+          train_samples\", len(train_features_df))\n    metrics.log_metric(\"test_samples\"\
+          , len(test_features_df))\n    metrics.log_metric(\"email_features\", 520)\
+          \  # 8+8+4+500\n    metrics.log_metric(\"sender_features\", len(sender_features))\n\
+          \n    from collections import namedtuple\n    outputs = namedtuple(\"Outputs\"\
+          , [\"feature_count\", \"train_samples\", \"test_samples\", \"train_features_path\"\
+          , \"test_features_path\"])\n    return outputs(feature_count, len(train_features_df),\
+          \ len(test_features_df), train_path_output, test_path_output)\n\n"
+        image: mltrainingsdevacrqvwjyi.azurecr.io/ml-data-prep:latest
+    exec-hpo-tuning:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - hpo_tuning
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kubernetes==29.0.0'\
+          \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.14.1'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef hpo_tuning(\n    acr_name: str,\n    image_tag: str,\n    train_features_path:\
+          \ str,\n    storage_account: str,\n    container_name: str,\n    mlflow_tracking_uri:\
+          \ str,\n    mlflow_experiment_name: str,\n    num_trials: int,\n    max_concurrent_trials:\
+          \ int,\n    metrics: Output[Metrics],\n) -> NamedTuple(\"Outputs\", [(\"\
+          best_f1\", float), (\"best_params\", str), (\"best_model_path\", str)]):\n\
+          \    \"\"\"\n    Run hyperparameter optimization using Ray Tune via RayJob.\n\
+          \n    Args:\n        acr_name: Azure Container Registry name\n        image_tag:\
+          \ Docker image tag\n        train_features_path: Blob path to training features\
+          \ parquet\n        storage_account: Azure storage account name\n       \
+          \ container_name: Azure blob container name\n        mlflow_tracking_uri:\
+          \ MLflow tracking server URI\n        mlflow_experiment_name: Name of MLflow\
+          \ experiment\n        num_trials: Number of HPO trials to run\n        max_concurrent_trials:\
+          \ Maximum concurrent trials\n        best_model_path: Output path for best\
+          \ model\n        metrics: Output metrics object\n\n    Returns:\n      \
+          \  best_f1: Best F1 score achieved\n        best_params: JSON string of\
+          \ best hyperparameters\n    \"\"\"\n    import os\n    import json\n   \
+          \ import time\n    from kubernetes import client, config\n\n    # Load in-cluster\
+          \ config\n    config.load_incluster_config()\n\n    print(f\"Training features\
+          \ path: {train_features_path}\")\n\n    # RayJob specification for HPO\n\
+          \    job_name = f\"hpo-tuning-{int(time.time())}\"\n\n    ray_job_spec =\
+          \ {\n        \"apiVersion\": \"ray.io/v1\",\n        \"kind\": \"RayJob\"\
+          ,\n        \"metadata\": {\n            \"name\": job_name,\n          \
+          \  \"namespace\": \"kubeflow\",\n            \"finalizers\": [],  # Disable\
+          \ finalizers to allow automatic cleanup\n        },\n        \"spec\": {\n\
+          \            \"entrypoint\": \"python /app/scripts/hpo_train.py\",\n   \
+          \         \"runtimeEnvYAML\": f\"\"\"\nenv_vars:\n  TRAINING_FEATURES_PATH:\
+          \ \"{train_features_path}\"\n  STORAGE_ACCOUNT: \"{storage_account}\"\n\
+          \  CONTAINER_NAME: \"{container_name}\"\n  MLFLOW_TRACKING_URI: \"{mlflow_tracking_uri}\"\
+          \n  MLFLOW_EXPERIMENT_NAME: \"{mlflow_experiment_name}\"\n  NUM_TRIALS:\
+          \ \"{num_trials}\"\n  MAX_CONCURRENT_TRIALS: \"{max_concurrent_trials}\"\
+          \nworking_dir: \"/app\"\n\"\"\",\n            \"shutdownAfterJobFinishes\"\
+          : True,\n            \"ttlSecondsAfterFinished\": 600,\n            \"rayClusterSpec\"\
+          : {\n                \"rayVersion\": \"2.9.0\",\n                \"headGroupSpec\"\
+          : {\n                    \"rayStartParams\": {\n                       \
+          \ \"dashboard-host\": \"0.0.0.0\",\n                    },\n           \
+          \         \"template\": {\n                        \"spec\": {\n       \
+          \                     \"containers\": [\n                              \
+          \  {\n                                    \"name\": \"ray-head\",\n    \
+          \                                \"image\": f\"{acr_name}/ml-ray-train:{image_tag}\"\
+          ,\n                                    \"resources\": {\n              \
+          \                          \"requests\": {\"cpu\": \"1\", \"memory\": \"\
+          2Gi\"},  # Reduced from 2 CPU / 4Gi\n                                  \
+          \      \"limits\": {\"cpu\": \"2\", \"memory\": \"4Gi\"},  # Keep higher\
+          \ limit\n                                    },\n                      \
+          \              \"envFrom\": [\n                                        {\"\
+          secretRef\": {\"name\": \"azure-storage-secret\"}}\n                   \
+          \                 ],\n                                }\n              \
+          \              ],\n                        }\n                    },\n \
+          \               },\n                \"workerGroupSpecs\": [\n          \
+          \          {\n                        \"groupName\": \"workers\",\n    \
+          \                    \"replicas\": 2,  # Reduced from 4 to 2 workers\n \
+          \                       \"minReplicas\": 1,  # Reduced from 2 to 1\n   \
+          \                     \"maxReplicas\": 4,  # Reduced from 6 to 4\n     \
+          \                   \"rayStartParams\": {},\n                        \"\
+          template\": {\n                            \"spec\": {\n               \
+          \                 \"tolerations\": [\n                                 \
+          \   {\n                                        \"key\": \"kubernetes.azure.com/scalesetpriority\"\
+          ,\n                                        \"operator\": \"Equal\",\n  \
+          \                                      \"value\": \"spot\",\n          \
+          \                              \"effect\": \"NoSchedule\",\n           \
+          \                         }\n                                ],\n      \
+          \                          \"containers\": [\n                         \
+          \           {\n                                        \"name\": \"ray-worker\"\
+          ,\n                                        \"image\": f\"{acr_name}/ml-ray-train:{image_tag}\"\
+          ,\n                                        \"resources\": {\n          \
+          \                                  \"requests\": {\"cpu\": \"1\", \"memory\"\
+          : \"2Gi\"},  # Reduced from 4 CPU / 8Gi\n                              \
+          \              \"limits\": {\"cpu\": \"2\", \"memory\": \"4Gi\"},  # Reduced\
+          \ from 4 CPU / 8Gi\n                                        },\n       \
+          \                                 \"envFrom\": [\n                     \
+          \                       {\"secretRef\": {\"name\": \"azure-storage-secret\"\
+          }}\n                                        ],\n                       \
+          \             }\n                                ],\n                  \
+          \          }\n                        },\n                    }\n      \
+          \          ],\n            },\n        },\n    }\n\n    # Create RayJob\n\
+          \    api = client.CustomObjectsApi()\n\n    print(f\"Creating RayJob: {job_name}\"\
+          )\n    api.create_namespaced_custom_object(\n        group=\"ray.io\",\n\
+          \        version=\"v1\",\n        namespace=\"kubeflow\",\n        plural=\"\
+          rayjobs\",\n        body=ray_job_spec,\n    )\n\n    # Wait for job completion\n\
+          \    print(\"Waiting for HPO RayJob to complete...\")\n    max_wait_time\
+          \ = 7200  # 2 hours for HPO\n    poll_interval = 60\n    elapsed = 0\n\n\
+          \    while elapsed < max_wait_time:\n        time.sleep(poll_interval)\n\
+          \        elapsed += poll_interval\n\n        try:\n            job = api.get_namespaced_custom_object(\n\
+          \                group=\"ray.io\",\n                version=\"v1\",\n  \
+          \              namespace=\"kubeflow\",\n                plural=\"rayjobs\"\
+          ,\n                name=job_name,\n            )\n\n            status =\
+          \ job.get(\"status\", {})\n            job_status = status.get(\"jobStatus\"\
+          , \"PENDING\")\n            job_deployment_status = status.get(\"jobDeploymentStatus\"\
+          , \"Unknown\")\n\n            print(f\"RayJob status: {job_status}, deployment:\
+          \ {job_deployment_status} (elapsed: {elapsed}s)\")\n\n            if job_status\
+          \ == \"SUCCEEDED\":\n                print(\"HPO RayJob completed successfully!\"\
+          )\n                break\n            elif job_status in [\"FAILED\", \"\
+          STOPPED\"]:\n                # Get more details\n                message\
+          \ = status.get(\"message\", \"No message\")\n                raise RuntimeError(f\"\
+          HPO RayJob failed: {job_status} - {message}\")\n\n        except client.ApiException\
+          \ as e:\n            if e.status == 404:\n                print(f\"RayJob\
+          \ {job_name} not found, may have been cleaned up\")\n                break\n\
+          \            raise\n    else:\n        raise TimeoutError(f\"HPO RayJob\
+          \ did not complete within {max_wait_time} seconds\")\n\n    # Cleanup: Delete\
+          \ the RayJob to avoid accumulation\n    try:\n        print(f\"Cleaning\
+          \ up RayJob: {job_name}\")\n        api.delete_namespaced_custom_object(\n\
+          \            group=\"ray.io\",\n            version=\"v1\",\n          \
+          \  namespace=\"kubeflow\",\n            plural=\"rayjobs\",\n          \
+          \  name=job_name,\n        )\n        print(f\"Successfully deleted RayJob:\
+          \ {job_name}\")\n    except Exception as e:\n        print(f\"Warning: Failed\
+          \ to delete RayJob (may have been auto-deleted): {e}\")\n\n    # Read HPO\
+          \ results from blob storage\n    from azure.storage.blob import BlobServiceClient\n\
+          \n    connection_string = os.environ.get(\"AZURE_STORAGE_CONNECTION_STRING\"\
+          )\n    blob_service = BlobServiceClient.from_connection_string(connection_string)\n\
+          \    container_client = blob_service.get_container_client(container_name)\n\
+          \n    results_blob_path = \"hpo/results.json\"\n    print(f\"Reading HPO\
+          \ results from: {container_name}/{results_blob_path}\")\n\n    try:\n  \
+          \      blob_client = container_client.get_blob_client(results_blob_path)\n\
+          \        results_data = blob_client.download_blob().readall()\n        hpo_results\
+          \ = json.loads(results_data)\n    except Exception as e:\n        raise\
+          \ RuntimeError(f\"HPO results not found. Job may have failed. Error: {e}\"\
+          )\n\n    best_f1 = hpo_results.get(\"best_f1\", 0.0)\n    best_params =\
+          \ json.dumps(hpo_results.get(\"best_params\", {}))\n\n    print(f\"Best\
+          \ F1: {best_f1:.4f}\")\n    print(f\"Best params: {best_params}\")\n\n \
+          \   # Define output path\n    model_path = f\"{container_name}/hpo/best_model.pkl\"\
+          \n\n    # Log metrics\n    metrics.log_metric(\"best_f1\", best_f1)\n  \
+          \  metrics.log_metric(\"best_precision\", hpo_results.get(\"best_precision\"\
+          , 0.0))\n    metrics.log_metric(\"best_recall\", hpo_results.get(\"best_recall\"\
+          , 0.0))\n    metrics.log_metric(\"best_auc_roc\", hpo_results.get(\"best_auc_roc\"\
+          , 0.0))\n    metrics.log_metric(\"trials_completed\", hpo_results.get(\"\
+          trials_completed\", 0))\n    metrics.log_metric(\"total_time_seconds\",\
+          \ hpo_results.get(\"total_time_seconds\", 0))\n\n    from collections import\
+          \ namedtuple\n    outputs = namedtuple(\"Outputs\", [\"best_f1\", \"best_params\"\
+          , \"best_model_path\"])\n    return outputs(float(best_f1), best_params,\
+          \ model_path)\n\n"
+        image: mltrainingsdevacrqvwjyi.azurecr.io/ml-data-prep:latest
+    exec-model-evaluation:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - model_evaluation
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.14.1'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef model_evaluation(\n    acr_name: str,\n    image_tag: str,\n\
+          \    best_model_path: str,\n    test_features_path: str,\n    storage_account:\
+          \ str,\n    container_name: str,\n    mlflow_tracking_uri: str,\n    mlflow_experiment_name:\
+          \ str,\n    model_name: str,\n    f1_threshold: float,\n    metrics: Output[Metrics],\n\
+          ) -> NamedTuple(\"Outputs\", [(\"test_f1\", float), (\"registered\", bool),\
+          \ (\"model_version\", str)]):\n    \"\"\"\n    Evaluate best model on test\
+          \ set and register to MLflow if threshold is met.\n\n    Args:\n       \
+          \ acr_name: Azure Container Registry name\n        image_tag: Docker image\
+          \ tag\n        best_model_path: Blob path to best model pickle\n       \
+          \ test_features_path: Blob path to test features parquet\n        storage_account:\
+          \ Azure storage account name\n        container_name: Azure blob container\
+          \ name\n        mlflow_tracking_uri: MLflow tracking server URI\n      \
+          \  mlflow_experiment_name: Name of MLflow experiment\n        model_name:\
+          \ Name for model registry\n        f1_threshold: Minimum F1 score to register\
+          \ model\n        metrics: Output metrics object\n\n    Returns:\n      \
+          \  test_f1: F1 score on test set\n        registered: Whether model was\
+          \ registered\n        model_version: Version number if registered, else\
+          \ empty string\n    \"\"\"\n    import os\n    import pickle\n    import\
+          \ io\n    import mlflow\n    import mlflow.xgboost\n    import numpy as\
+          \ np\n    import pandas as pd\n    import matplotlib\n    matplotlib.use('Agg')\
+          \  # Non-interactive backend\n    import matplotlib.pyplot as plt\n    import\
+          \ seaborn as sns\n    from sklearn.metrics import (\n        accuracy_score,\n\
+          \        precision_score,\n        recall_score,\n        f1_score as sklearn_f1_score,\n\
+          \        roc_auc_score,\n        classification_report,\n        confusion_matrix,\n\
+          \        roc_curve,\n        precision_recall_curve,\n    )\n    from sklearn.preprocessing\
+          \ import StandardScaler\n    from azure.storage.blob import BlobServiceClient\n\
+          \n    # Initialize Azure storage\n    connection_string = os.environ.get(\"\
+          AZURE_STORAGE_CONNECTION_STRING\")\n    blob_service = BlobServiceClient.from_connection_string(connection_string)\n\
+          \    container_client = blob_service.get_container_client(container_name)\n\
+          \    storage_options = {\"connection_string\": connection_string}\n\n  \
+          \  print(f\"Loading model from: {best_model_path}\")\n    print(f\"Loading\
+          \ test data from: {test_features_path}\")\n\n    # Extract blob path (remove\
+          \ container prefix if present)\n    model_blob_path = best_model_path.split('/',\
+          \ 1)[1] if '/' in best_model_path else best_model_path\n\n    # Load model\
+          \ and scaler from blob storage\n    model_blob_client = container_client.get_blob_client(model_blob_path)\n\
+          \    model_data = model_blob_client.download_blob().readall()\n    model\
+          \ = pickle.loads(model_data)\n\n    scaler_path = model_blob_path.replace(\"\
+          best_model.pkl\", \"scaler.pkl\")\n    scaler_blob_client = container_client.get_blob_client(scaler_path)\n\
+          \    scaler_data = scaler_blob_client.download_blob().readall()\n    scaler\
+          \ = pickle.loads(scaler_data)\n\n    # Load test data using abfs://\n  \
+          \  test_read_path = f\"abfs://{test_features_path}\"\n    test_df = pd.read_parquet(test_read_path,\
+          \ storage_options=storage_options)\n\n    print(f\"Test set: {len(test_df)}\
+          \ samples\")\n\n    # Prepare features - filter to numeric columns only\n\
+          \    exclude_cols = [\"email_id\", \"sender_domain\", \"event_timestamp\"\
+          , \"label\"]\n    numeric_cols = test_df.select_dtypes(include=[\"float64\"\
+          , \"float32\", \"int64\", \"int32\"]).columns\n    feature_cols = [c for\
+          \ c in numeric_cols if c not in exclude_cols]\n\n    X_test = test_df[feature_cols].values\n\
+          \    y_test = test_df[\"label\"].values\n\n    # Encode labels if they are\
+          \ strings\n    if y_test.dtype == 'object':\n        print(\"Encoding string\
+          \ labels to numeric...\")\n        label_map = {\"ham\": 0, \"spam\": 1}\n\
+          \        y_test = np.array([label_map.get(label.lower() if isinstance(label,\
+          \ str) else label, label) for label in y_test])\n        print(f\"Label\
+          \ encoding: {label_map}\")\n\n    print(f\"Features shape: {X_test.shape}\"\
+          )\n    print(f\"Number of features: {len(feature_cols)}\")\n    print(f\"\
+          Test label distribution: {np.bincount(y_test)}\")\n\n    # Scale features\n\
+          \    X_test_scaled = scaler.transform(X_test)\n    X_test_scaled = np.nan_to_num(X_test_scaled,\
+          \ nan=0.0, posinf=0.0, neginf=0.0)\n\n    # Predict\n    print(\"Running\
+          \ predictions...\")\n    y_pred = model.predict(X_test_scaled)\n    y_pred_proba\
+          \ = model.predict_proba(X_test_scaled)[:, 1]\n\n    # Calculate metrics\n\
+          \    accuracy = accuracy_score(y_test, y_pred)\n    precision = precision_score(y_test,\
+          \ y_pred)\n    recall = recall_score(y_test, y_pred)\n    f1 = sklearn_f1_score(y_test,\
+          \ y_pred)\n    auc_roc = roc_auc_score(y_test, y_pred_proba)\n\n    print(f\"\
+          \\n{'='*50}\")\n    print(f\"TEST SET RESULTS\")\n    print(f\"{'='*50}\"\
+          )\n    print(f\"  Accuracy:  {accuracy:.4f}\")\n    print(f\"  Precision:\
+          \ {precision:.4f}\")\n    print(f\"  Recall:    {recall:.4f}\")\n    print(f\"\
+          \  F1 Score:  {f1:.4f}\")\n    print(f\"  AUC-ROC:   {auc_roc:.4f}\")\n\
+          \    print(f\"{'='*50}\")\n\n    # Classification report\n    report = classification_report(y_test,\
+          \ y_pred, target_names=[\"Ham\", \"Spam\"])\n    print(f\"\\nClassification\
+          \ Report:\\n{report}\")\n\n    # Confusion matrix\n    cm = confusion_matrix(y_test,\
+          \ y_pred)\n    print(f\"\\nConfusion Matrix:\\n{cm}\")\n\n    # Suppress\
+          \ git warnings\n    os.environ[\"GIT_PYTHON_REFRESH\"] = \"quiet\"\n\n \
+          \   # Set up MLflow (with error handling for connection issues)\n    registered\
+          \ = False\n    model_version = \"\"\n\n    try:\n        mlflow.set_tracking_uri(mlflow_tracking_uri)\n\
+          \        mlflow.set_experiment(mlflow_experiment_name)\n        print(\"\
+          Successfully connected to MLflow\")\n    except Exception as e:\n      \
+          \  print(f\"Warning: Failed to connect to MLflow: {e}\")\n        print(\"\
+          Continuing without MLflow tracking...\")\n\n    try:\n        with mlflow.start_run(run_name=\"\
+          final_evaluation\"):\n            # Log parameters\n            mlflow.log_param(\"\
+          test_samples\", len(test_df))\n            mlflow.log_param(\"f1_threshold\"\
+          , f1_threshold)\n            mlflow.log_param(\"num_features\", len(feature_cols))\n\
+          \n            # Log metrics\n            mlflow.log_metric(\"test_accuracy\"\
+          , accuracy)\n            mlflow.log_metric(\"test_precision\", precision)\n\
+          \            mlflow.log_metric(\"test_recall\", recall)\n            mlflow.log_metric(\"\
+          test_f1\", f1)\n            mlflow.log_metric(\"test_auc_roc\", auc_roc)\n\
+          \n            # Log classification report\n            try:\n          \
+          \      mlflow.log_text(report, \"test_classification_report.txt\")\n   \
+          \         except Exception as e:\n                print(f\"Warning: Failed\
+          \ to log classification report: {e}\")\n\n            # Create and log confusion\
+          \ matrix plot\n            try:\n                plt.figure(figsize=(8,\
+          \ 6))\n                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',\n\
+          \                            xticklabels=['Ham', 'Spam'],\n            \
+          \                yticklabels=['Ham', 'Spam'])\n                plt.title('Confusion\
+          \ Matrix - Test Set')\n                plt.ylabel('True Label')\n      \
+          \          plt.xlabel('Predicted Label')\n                plt.tight_layout()\n\
+          \                cm_path = \"/tmp/confusion_matrix.png\"\n             \
+          \   plt.savefig(cm_path, dpi=100)\n                mlflow.log_artifact(cm_path)\n\
+          \                plt.close()\n                print(\"Successfully logged\
+          \ confusion matrix\")\n            except Exception as e:\n            \
+          \    print(f\"Warning: Failed to log confusion matrix: {e}\")\n\n      \
+          \      # Create and log ROC curve\n            try:\n                fpr,\
+          \ tpr, _ = roc_curve(y_test, y_pred_proba)\n                plt.figure(figsize=(8,\
+          \ 6))\n                plt.plot(fpr, tpr, 'b-', linewidth=2, label=f'ROC\
+          \ curve (AUC = {auc_roc:.4f})')\n                plt.plot([0, 1], [0, 1],\
+          \ 'k--', linewidth=1)\n                plt.xlabel('False Positive Rate')\n\
+          \                plt.ylabel('True Positive Rate')\n                plt.title('ROC\
+          \ Curve - Test Set')\n                plt.legend(loc='lower right')\n  \
+          \              plt.grid(True, alpha=0.3)\n                plt.tight_layout()\n\
+          \                roc_path = \"/tmp/roc_curve.png\"\n                plt.savefig(roc_path,\
+          \ dpi=100)\n                mlflow.log_artifact(roc_path)\n            \
+          \    plt.close()\n                print(\"Successfully logged ROC curve\"\
+          )\n            except Exception as e:\n                print(f\"Warning:\
+          \ Failed to log ROC curve: {e}\")\n\n            # Create and log precision-recall\
+          \ curve\n            try:\n                prec_curve, rec_curve, _ = precision_recall_curve(y_test,\
+          \ y_pred_proba)\n                plt.figure(figsize=(8, 6))\n          \
+          \      plt.plot(rec_curve, prec_curve, 'b-', linewidth=2)\n            \
+          \    plt.xlabel('Recall')\n                plt.ylabel('Precision')\n   \
+          \             plt.title('Precision-Recall Curve - Test Set')\n         \
+          \       plt.grid(True, alpha=0.3)\n                plt.tight_layout()\n\
+          \                pr_path = \"/tmp/pr_curve.png\"\n                plt.savefig(pr_path,\
+          \ dpi=100)\n                mlflow.log_artifact(pr_path)\n             \
+          \   plt.close()\n                print(\"Successfully logged PR curve\"\
+          )\n            except Exception as e:\n                print(f\"Warning:\
+          \ Failed to log PR curve: {e}\")\n\n            # Check if model meets threshold\n\
+          \            if f1 >= f1_threshold:\n                print(f\"\\n\u2713\
+          \ Model F1 ({f1:.4f}) >= threshold ({f1_threshold})\")\n               \
+          \ print(f\"Registering model to MLflow as '{model_name}'...\")\n\n     \
+          \           # Log and register model\n                try:\n           \
+          \         mlflow.xgboost.log_model(\n                        model,\n  \
+          \                      artifact_path=\"model\",\n                      \
+          \  registered_model_name=model_name,\n                    )\n          \
+          \          print(\"Successfully registered XGBoost model\")\n          \
+          \      except Exception as e:\n                    print(f\"Warning: Failed\
+          \ to register model: {e}\")\n\n                # Also log scaler\n     \
+          \           try:\n                    mlflow.sklearn.log_model(scaler, artifact_path=\"\
+          scaler\")\n                    print(\"Successfully logged scaler\")\n \
+          \               except Exception as e:\n                    print(f\"Warning:\
+          \ Failed to log scaler: {e}\")\n\n                # Get registered model\
+          \ version and add tags\n                try:\n                    client\
+          \ = mlflow.tracking.MlflowClient()\n\n                    # Wait a moment\
+          \ for registration to complete\n                    import time\n      \
+          \              time.sleep(2)\n\n                    registered_model = client.get_registered_model(model_name)\n\
+          \                    latest_versions = registered_model.latest_versions\n\
+          \                    if latest_versions:\n                        model_version\
+          \ = latest_versions[0].version\n\n                        # Add tags to\
+          \ model version\n                        client.set_model_version_tag(\n\
+          \                            name=model_name,\n                        \
+          \    version=model_version,\n                            key=\"test_f1\"\
+          ,\n                            value=str(round(f1, 4)),\n              \
+          \          )\n                        client.set_model_version_tag(\n  \
+          \                          name=model_name,\n                          \
+          \  version=model_version,\n                            key=\"test_auc_roc\"\
+          ,\n                            value=str(round(auc_roc, 4)),\n         \
+          \               )\n                        client.set_model_version_tag(\n\
+          \                            name=model_name,\n                        \
+          \    version=model_version,\n                            key=\"test_precision\"\
+          ,\n                            value=str(round(precision, 4)),\n       \
+          \                 )\n                        client.set_model_version_tag(\n\
+          \                            name=model_name,\n                        \
+          \    version=model_version,\n                            key=\"test_recall\"\
+          ,\n                            value=str(round(recall, 4)),\n          \
+          \              )\n\n                        # Transition to Staging\n  \
+          \                      client.transition_model_version_stage(\n        \
+          \                    name=model_name,\n                            version=model_version,\n\
+          \                            stage=\"Staging\",\n                      \
+          \  )\n\n                        registered = True\n                    \
+          \    print(f\"\u2713 Model registered as version {model_version} in Staging\"\
+          )\n                    else:\n                        print(\"Warning: No\
+          \ model versions found after registration\")\n                except Exception\
+          \ as e:\n                    print(f\"Warning: Failed to get model version\
+          \ or add tags: {e}\")\n                    # Still consider it registered\
+          \ if the model logging succeeded\n                    registered = True\n\
+          \                    model_version = \"unknown\"\n            else:\n  \
+          \              print(f\"\\n\u2717 Model F1 ({f1:.4f}) < threshold ({f1_threshold})\"\
+          )\n                print(\"Model NOT registered.\")\n    except Exception\
+          \ as e:\n        print(f\"Warning: MLflow run failed: {e}\")\n        print(\"\
+          Continuing without MLflow...\")\n\n        mlflow.log_param(\"registered\"\
+          , registered)\n        mlflow.log_param(\"model_version\", model_version)\n\
+          \n    # Log output metrics\n    metrics.log_metric(\"test_f1\", f1)\n  \
+          \  metrics.log_metric(\"test_precision\", precision)\n    metrics.log_metric(\"\
+          test_recall\", recall)\n    metrics.log_metric(\"test_auc_roc\", auc_roc)\n\
+          \    metrics.log_metric(\"test_accuracy\", accuracy)\n    metrics.log_metric(\"\
+          registered\", int(registered))\n\n    from collections import namedtuple\n\
+          \    outputs = namedtuple(\"Outputs\", [\"test_f1\", \"registered\", \"\
+          model_version\"])\n    return outputs(float(f1), registered, model_version)\n\
+          \n"
+        image: mltrainingsdevacrqvwjyi.azurecr.io/ml-mlflow-ops:latest
+pipelineInfo:
+  description: End-to-end spam detection model training pipeline with Feast feature
+    retrieval, baseline training, HPO, and model registration
+  name: spam-detection-training
+root:
+  dag:
+    tasks:
+      baseline-training:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-baseline-training
+        dependentTasks:
+        - feature-retrieval
+        inputs:
+          parameters:
+            acr_name:
+              componentInputParameter: acr_name
+            container_name:
+              componentInputParameter: model_container_name
+            image_tag:
+              componentInputParameter: image_tag
+            mlflow_experiment_name:
+              componentInputParameter: mlflow_experiment_name
+            mlflow_tracking_uri:
+              componentInputParameter: mlflow_tracking_uri
+            model_type:
+              componentInputParameter: baseline_model_type
+            storage_account:
+              componentInputParameter: storage_account
+            train_features_path:
+              taskOutputParameter:
+                outputParameterKey: train_features_path
+                producerTask: feature-retrieval
+        taskInfo:
+          name: 3. Baseline Training ({{channel:task=;name=baseline_model_type;type=String;}})
+      data-preparation:
+        cachingOptions: {}
+        componentRef:
+          name: comp-data-preparation
+        inputs:
+          parameters:
+            acr_name:
+              componentInputParameter: acr_name
+            container_name:
+              componentInputParameter: container_name
+            entity_data_path:
+              componentInputParameter: entity_data_path
+            image_tag:
+              componentInputParameter: image_tag
+            storage_account:
+              componentInputParameter: storage_account
+            test_split_ratio:
+              componentInputParameter: test_split_ratio
+        taskInfo:
+          name: 1. Data Preparation
+      feature-retrieval:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-feature-retrieval
+        dependentTasks:
+        - data-preparation
+        inputs:
+          parameters:
+            acr_name:
+              componentInputParameter: acr_name
+            container_name:
+              componentInputParameter: feast_container_name
+            feast_server_url:
+              componentInputParameter: feast_server_url
+            image_tag:
+              componentInputParameter: image_tag
+            include_sender_features:
+              componentInputParameter: include_sender_features
+            storage_account:
+              componentInputParameter: storage_account
+            test_entity_path:
+              taskOutputParameter:
+                outputParameterKey: test_entity_path
+                producerTask: data-preparation
+            train_entity_path:
+              taskOutputParameter:
+                outputParameterKey: train_entity_path
+                producerTask: data-preparation
+        taskInfo:
+          name: 2. Feature Retrieval (Feast)
+      hpo-tuning:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-hpo-tuning
+        dependentTasks:
+        - baseline-training
+        - feature-retrieval
+        inputs:
+          parameters:
+            acr_name:
+              componentInputParameter: acr_name
+            container_name:
+              componentInputParameter: model_container_name
+            image_tag:
+              componentInputParameter: image_tag
+            max_concurrent_trials:
+              componentInputParameter: max_concurrent_trials
+            mlflow_experiment_name:
+              componentInputParameter: mlflow_experiment_name
+            mlflow_tracking_uri:
+              componentInputParameter: mlflow_tracking_uri
+            num_trials:
+              componentInputParameter: num_hpo_trials
+            storage_account:
+              componentInputParameter: storage_account
+            train_features_path:
+              taskOutputParameter:
+                outputParameterKey: train_features_path
+                producerTask: feature-retrieval
+        taskInfo:
+          name: 4. HPO (Ray Tune)
+      model-evaluation:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-model-evaluation
+        dependentTasks:
+        - feature-retrieval
+        - hpo-tuning
+        inputs:
+          parameters:
+            acr_name:
+              componentInputParameter: acr_name
+            best_model_path:
+              taskOutputParameter:
+                outputParameterKey: best_model_path
+                producerTask: hpo-tuning
+            container_name:
+              componentInputParameter: model_container_name
+            f1_threshold:
+              componentInputParameter: f1_threshold
+            image_tag:
+              componentInputParameter: image_tag
+            mlflow_experiment_name:
+              componentInputParameter: mlflow_experiment_name
+            mlflow_tracking_uri:
+              componentInputParameter: mlflow_tracking_uri
+            model_name:
+              componentInputParameter: model_name
+            storage_account:
+              componentInputParameter: storage_account
+            test_features_path:
+              taskOutputParameter:
+                outputParameterKey: test_features_path
+                producerTask: feature-retrieval
+        taskInfo:
+          name: 5. Model Evaluation & Registration
+  inputDefinitions:
+    parameters:
+      acr_name:
+        description: Azure Container Registry name (used for setting component images)
+        parameterType: STRING
+      baseline_model_type:
+        defaultValue: logistic_regression
+        description: Type of baseline model (logistic_regression or random_forest)
+        isOptional: true
+        parameterType: STRING
+      container_name:
+        defaultValue: datasets
+        description: Azure blob container name
+        isOptional: true
+        parameterType: STRING
+      entity_data_path:
+        defaultValue: processed/emails/all_emails.parquet
+        description: Path to all_emails.parquet in blob storage
+        isOptional: true
+        parameterType: STRING
+      f1_threshold:
+        defaultValue: 0.85
+        description: Minimum F1 score to register model
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      feast_container_name:
+        defaultValue: feast
+        description: Azure blob container for Feast features
+        isOptional: true
+        parameterType: STRING
+      feast_server_url:
+        defaultValue: feast-service.feast.svc.cluster.local:6566
+        description: Feast server gRPC endpoint
+        isOptional: true
+        parameterType: STRING
+      image_tag:
+        defaultValue: latest
+        description: Docker image tag for pipeline components
+        isOptional: true
+        parameterType: STRING
+      include_sender_features:
+        defaultValue: true
+        description: Whether to include sender_domain_features
+        isOptional: true
+        parameterType: BOOLEAN
+      max_concurrent_trials:
+        defaultValue: 4.0
+        description: Max concurrent HPO trials
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      mlflow_experiment_name:
+        defaultValue: spam-detection
+        description: Name of MLflow experiment
+        isOptional: true
+        parameterType: STRING
+      mlflow_tracking_uri:
+        defaultValue: http://mlflow-service.mlflow.svc.cluster.local:5000
+        description: MLflow tracking server URI
+        isOptional: true
+        parameterType: STRING
+      model_container_name:
+        defaultValue: models
+        description: Azure blob container for models
+        isOptional: true
+        parameterType: STRING
+      model_name:
+        defaultValue: spam-detector
+        description: Name for model registry
+        isOptional: true
+        parameterType: STRING
+      num_hpo_trials:
+        defaultValue: 20.0
+        description: Number of HPO trials
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      storage_account:
+        defaultValue: mltrainingsdevsaqvwjyi
+        description: Azure storage account name
+        isOptional: true
+        parameterType: STRING
+      test_split_ratio:
+        defaultValue: 0.2
+        description: Fraction of data for test set
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.14.1
+---
+platforms:
+  kubernetes:
+    deploymentSpec:
+      executors:
+        exec-baseline-training:
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: AZURE_STORAGE_CONNECTION_STRING
+              secretKey: AZURE_STORAGE_CONNECTION_STRING
+            secretName: azure-storage-secret
+        exec-data-preparation:
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: AZURE_STORAGE_CONNECTION_STRING
+              secretKey: AZURE_STORAGE_CONNECTION_STRING
+            secretName: azure-storage-secret
+        exec-feature-retrieval:
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: AZURE_STORAGE_CONNECTION_STRING
+              secretKey: AZURE_STORAGE_CONNECTION_STRING
+            secretName: azure-storage-secret
+        exec-hpo-tuning:
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: AZURE_STORAGE_CONNECTION_STRING
+              secretKey: AZURE_STORAGE_CONNECTION_STRING
+            secretName: azure-storage-secret
+        exec-model-evaluation:
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: AZURE_STORAGE_CONNECTION_STRING
+              secretKey: AZURE_STORAGE_CONNECTION_STRING
+            secretName: azure-storage-secret

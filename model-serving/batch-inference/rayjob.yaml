@@ -1,0 +1,217 @@
+# RayJob for Batch Prediction
+#
+# This manifest creates a RayJob for running batch predictions.
+# The job submits the batch prediction script to the existing Ray cluster.
+#
+# Prerequisites:
+#   - Ray cluster running in ray namespace
+#   - Model registered in MLflow
+#   - Input data in Azure Blob Storage
+#   - Docker image built with batch_predict.py code
+#
+# Usage:
+#   # Set environment variables and apply with envsubst
+#   export ACR_NAME=myacr.azurecr.io
+#   export IMAGE_TAG=v0.15
+#   export AZURE_STORAGE_ACCOUNT_NAME=mystorageaccount
+#   export AZURE_STORAGE_ACCOUNT_KEY=mykey
+#   envsubst < rayjob.yaml | kubectl apply -f -
+#   
+#   # Check job status
+#   kubectl get rayjob batch-prediction -n ray
+#   kubectl logs -f -l job-name=batch-prediction -n ray
+---
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: batch-prediction
+  namespace: ray
+  labels:
+    app: batch-prediction
+    type: inference
+    version: "${IMAGE_TAG}"
+spec:
+  # Job configuration - use fixed output path to avoid shell expansion issues
+  entrypoint: "python /app/batch_predict.py --input-path batch/emails_to_predict.parquet --output-path predictions/batch_output_test.parquet --model-name spam-detector --model-stage Production --batch-size 1000"
+  
+  # Shut down the Ray cluster after job completion to save resources
+  shutdownAfterJobFinishes: true
+  
+  # Time to live for the RayJob resource after completion (in seconds)
+  # Keeps it around for 10 minutes for debugging, then auto-deletes
+  ttlSecondsAfterFinished: 600
+  
+  # Runtime environment - additional packages on top of the Docker image
+  runtimeEnvYAML: |
+    env_vars:
+      MLFLOW_TRACKING_URI: "http://mlflow-service.mlflow.svc.cluster.local:5000"
+      AZURE_STORAGE_CONTAINER: "datasets"
+      FEAST_CONTAINER: "feast"
+      MODELS_CONTAINER: "models"
+  
+  # Ray cluster specification
+  rayClusterSpec:
+    rayVersion: '2.9.0'
+    
+    # Head node configuration
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: '0.0.0.0'
+        num-cpus: "0"  # Don't schedule tasks on head
+      
+      template:
+        spec:
+          serviceAccountName: ray-batch-sa
+          containers:
+            - name: ray-head
+              image: ${ACR_NAME}/batch-inference:${IMAGE_TAG}
+              ports:
+                - containerPort: 6379
+                  name: gcs-server
+                - containerPort: 8265
+                  name: dashboard
+                - containerPort: 10001
+                  name: client
+              resources:
+                requests:
+                  cpu: "500m"
+                  memory: "1Gi"
+                limits:
+                  cpu: "1"
+                  memory: "2Gi"
+              env:
+                - name: AZURE_STORAGE_ACCOUNT_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: azure-storage-secret
+                      key: AZURE_STORAGE_ACCOUNT_NAME
+                - name: AZURE_STORAGE_ACCOUNT_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: azure-storage-secret
+                      key: AZURE_STORAGE_ACCOUNT_KEY
+                - name: MODELS_CONTAINER
+                  value: "models"
+    
+    # Worker node configuration
+    workerGroupSpecs:
+      - groupName: batch-workers
+        replicas: 1
+        minReplicas: 1
+        maxReplicas: 4
+        
+        rayStartParams:
+          num-cpus: "2"
+        
+        template:
+          spec:
+            serviceAccountName: ray-batch-sa
+            containers:
+              - name: ray-worker
+                image: ${ACR_NAME}/batch-inference:${IMAGE_TAG}
+                resources:
+                  requests:
+                    cpu: "500m"
+                    memory: "2Gi"
+                  limits:
+                    cpu: "2"
+                    memory: "4Gi"
+                env:
+                  - name: AZURE_STORAGE_ACCOUNT_NAME
+                    valueFrom:
+                      secretKeyRef:
+                        name: azure-storage-secret
+                        key: AZURE_STORAGE_ACCOUNT_NAME
+                  - name: AZURE_STORAGE_ACCOUNT_KEY
+                    valueFrom:
+                      secretKeyRef:
+                        name: azure-storage-secret
+                        key: AZURE_STORAGE_ACCOUNT_KEY
+                  - name: MODELS_CONTAINER
+                    value: "models"
+            
+            # Spot instance tolerance for cost savings
+            tolerations:
+              - key: "kubernetes.azure.com/scalesetpriority"
+                operator: "Equal"
+                value: "spot"
+                effect: "NoSchedule"
+---
+# ServiceAccount for Ray batch job
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ray-batch-sa
+  namespace: ray
+---
+# Azure Storage Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: azure-storage-secret
+  namespace: ray
+type: Opaque
+stringData:
+  AZURE_STORAGE_ACCOUNT_NAME: "${AZURE_STORAGE_ACCOUNT_NAME}"
+  AZURE_STORAGE_ACCOUNT_KEY: "${AZURE_STORAGE_ACCOUNT_KEY}"
+---
+# CronJob for scheduled batch predictions (optional)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: scheduled-batch-prediction
+  namespace: ray
+spec:
+  # Run daily at 2 AM UTC
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: ray-batch-sa
+          restartPolicy: OnFailure
+          containers:
+            - name: batch-predict
+              image: ${ACR_NAME}/batch-inference:${IMAGE_TAG}
+              command: ["python", "/app/batch_predict.py"]
+              args:
+                - --input-path
+                - batch/daily_emails.parquet
+                - --output-path
+                - predictions/daily_$(date +%Y%m%d).parquet
+                - --model-name
+                - spam-detector
+                - --model-stage
+                - Production
+              env:
+                - name: MLFLOW_TRACKING_URI
+                  value: "http://mlflow-service.mlflow.svc.cluster.local:5000"
+                - name: RAY_ADDRESS
+                  value: "ray://raycluster-head-svc.ray.svc.cluster.local:10001"
+                - name: AZURE_STORAGE_CONTAINER
+                  value: "datasets"
+                - name: FEAST_CONTAINER
+                  value: "feast"
+                - name: MODELS_CONTAINER
+                  value: "models"
+                - name: AZURE_STORAGE_ACCOUNT_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: azure-storage-secret
+                      key: AZURE_STORAGE_ACCOUNT_NAME
+                - name: AZURE_STORAGE_ACCOUNT_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: azure-storage-secret
+                      key: AZURE_STORAGE_ACCOUNT_KEY
+              resources:
+                requests:
+                  cpu: "500m"
+                  memory: "1Gi"
+                limits:
+                  cpu: "1"
+                  memory: "2Gi"

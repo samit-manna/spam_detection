@@ -1,0 +1,60 @@
+# Feast Feature Store Configuration for Model Serving
+#
+# This configuration sets up Feast with:
+# - Offline store: Azure Blob Storage (parquet files)
+# - Online store: Azure Cache for Redis (TLS enabled)
+# - Registry: Azure Blob Storage
+#
+# Note: Azure Redis is deployed via terraform/base-infra
+#       Feast server is deployed via terraform/ml-platform
+#
+# Usage:
+#   export AZURE_STORAGE_ACCOUNT_NAME=<from terraform output>
+#   export AZURE_STORAGE_ACCOUNT_KEY=<from terraform output>
+#   export REDIS_HOST=<from terraform output redis_hostname>
+#   export REDIS_KEY=<from terraform output redis_primary_access_key>
+#   cd feast/
+#   feast apply
+
+project: spam_detection
+provider: local
+
+# Registry configuration
+# Stores feature definitions and metadata
+registry:
+  registry_type: file
+  path: abfss://feast@${AZURE_STORAGE_ACCOUNT_NAME}.dfs.core.windows.net/registry/registry.db
+
+# Offline store configuration (for historical features)
+offline_store:
+  type: file
+  # Default path for parquet files
+  # Individual feature views can override this
+
+# Online store configuration (Azure Cache for Redis with TLS)
+online_store:
+  type: redis
+  # Azure Redis uses SSL on port 6380
+  connection_string: rediss://:${REDIS_KEY}@${REDIS_HOST}:6380/0
+
+# Entity key serialization format
+entity_key_serialization_version: 3
+
+# Feature serving endpoint configuration
+feature_server:
+  # gRPC server settings
+  type: grpc
+  port: 6566
+  # HTTP server settings (optional)
+  # type: http
+  # port: 6567
+
+# Materialization settings
+batch_engine:
+  type: local
+  # For larger datasets, use Spark or Snowflake
+  # type: spark
+  # spark.master: "spark://spark-master:7077"
+
+# Logging configuration
+go_feature_retrieval: false

@@ -1,0 +1,237 @@
+# KServe InferenceService - Production Deployment
+#
+# Deploys the spam-detector model to production environment using Triton runtime.
+# Production deployment has higher resource limits and stricter availability requirements.
+#
+# Prerequisites:
+#   - KServe installed via Terraform (../terraform/serving-infra)
+#   - Model promoted to Production stage in MLflow
+#   - Model exported to Azure Blob (see model-export/)
+#   - Azure storage secret configured
+#
+# Usage:
+#   kubectl apply -f production-isvc.yaml
+---
+# Service Account for inference pods with Azure storage access
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kserve-inference-sa
+  namespace: kserve
+  labels:
+    app: spam-detector
+secrets:
+  - name: storage-config
+---
+# Secret for Azure Blob Storage - KServe standard format
+apiVersion: v1
+kind: Secret
+metadata:
+  name: storage-config
+  namespace: kserve
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: ""
+type: Opaque
+stringData:
+  AZURE_STORAGE_ACCOUNT: "${AZURE_STORAGE_ACCOUNT_NAME}"
+  AZURE_STORAGE_ACCESS_KEY: "${AZURE_STORAGE_ACCOUNT_KEY}"
+---
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: spam-detector
+  namespace: kserve
+  labels:
+    app: spam-detector
+    environment: production
+    version: v1
+  annotations:
+    # Enable prometheus scraping
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    # Use RawDeployment mode for full control over pod spec and init containers
+    serving.kserve.io/deploymentMode: "RawDeployment"
+spec:
+  predictor:
+    # Higher replicas for production
+    minReplicas: 2
+    maxReplicas: 10
+    timeout: 30
+    serviceAccountName: kserve-inference-sa
+    
+    # Use containers spec directly for full control
+    containers:
+      - name: kserve-container
+        image: nvcr.io/nvidia/tritonserver:23.05-py3
+        args:
+          - tritonserver
+          - --model-store=/mnt/models
+          - --grpc-port=9000
+          - --http-port=8080
+          - --allow-grpc=true
+          - --allow-http=true
+          - --strict-model-config=false
+          - --response-cache-byte-size=1048576
+        ports:
+          - containerPort: 8080
+            protocol: TCP
+        env:
+          - name: OMP_NUM_THREADS
+            value: "4"
+        resources:
+          requests:
+            cpu: "1"
+            memory: "2Gi"
+          limits:
+            cpu: "4"
+            memory: "8Gi"
+        volumeMounts:
+          - name: model-storage
+            mountPath: /mnt/models
+        readinessProbe:
+          httpGet:
+            path: /v2/health/ready
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /v2/health/live
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 15
+    
+    # Init container to download model from Azure Blob Storage
+    initContainers:
+      - name: storage-initializer
+        image: kserve/storage-initializer:v0.12.0
+        args:
+          - "https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/models/triton-repo/spam-detector"
+          - "/mnt/models/spam-detector"
+        env:
+          - name: AZURE_STORAGE_ACCOUNT
+            valueFrom:
+              secretKeyRef:
+                name: storage-config
+                key: AZURE_STORAGE_ACCOUNT
+          - name: AZURE_STORAGE_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: storage-config
+                key: AZURE_STORAGE_ACCESS_KEY
+        volumeMounts:
+          - name: model-storage
+            mountPath: /mnt/models
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+    
+    volumes:
+      - name: model-storage
+        emptyDir: {}
+    
+    # Pod affinity for spreading across nodes
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: spam-detector
+                  environment: production
+              topologyKey: kubernetes.io/hostname
+---
+# VirtualService for production routing
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: spam-detector-vs
+  namespace: kserve
+spec:
+  hosts:
+    - spam-detector.kserve.svc.cluster.local
+    - spam-detector.example.com
+    - api.spam-detector.example.com
+  http:
+    - match:
+        - uri:
+            prefix: /v2
+      route:
+        - destination:
+            host: spam-detector-predictor.kserve.svc.cluster.local
+            port:
+              number: 80
+      timeout: 30s
+      retries:
+        attempts: 3
+        perTryTimeout: 10s
+        retryOn: "5xx,reset,connect-failure"
+      # Rate limiting headers
+      headers:
+        response:
+          add:
+            x-ratelimit-limit: "1000"
+---
+# DestinationRule for production connection pool
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: spam-detector-dr
+  namespace: kserve
+spec:
+  host: spam-detector-predictor.kserve.svc.cluster.local
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 200
+        connectTimeout: 5s
+      http:
+        h2UpgradePolicy: UPGRADE
+        http1MaxPendingRequests: 200
+        http2MaxRequests: 2000
+        maxRequestsPerConnection: 200
+        maxRetries: 3
+    loadBalancer:
+      simple: ROUND_ROBIN
+    outlierDetection:
+      consecutive5xxErrors: 3
+      interval: 15s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 30
+---
+# PodDisruptionBudget for high availability
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: spam-detector-pdb
+  namespace: kserve
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      serving.kserve.io/inferenceservice: spam-detector
+---
+# ServiceMonitor for Prometheus (if using Prometheus Operator)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: spam-detector-monitor
+  namespace: kserve
+  labels:
+    app: spam-detector
+spec:
+  selector:
+    matchLabels:
+      serving.kserve.io/inferenceservice: spam-detector
+  endpoints:
+    - port: http
+      interval: 30s
+      path: /metrics
+  namespaceSelector:
+    matchNames:
+      - kserve

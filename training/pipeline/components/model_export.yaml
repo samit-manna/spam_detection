@@ -1,0 +1,141 @@
+# Model Export Kubeflow Pipeline Component
+# 
+# This component exports an MLflow model to ONNX format and uploads to Azure Blob Storage
+# for serving with Triton Inference Server.
+#
+# Usage in pipeline:
+#   from kfp import components
+#   model_export_op = components.load_component_from_file('kfp_component.yaml')
+#   
+#   export_task = model_export_op(
+#       acr_name='myacr.azurecr.io',
+#       model_name='spam-detector',
+#       model_stage='Staging',
+#       storage_account='mystorageaccount',
+#       model_container='models'
+#   )
+
+name: Model Export to ONNX
+description: |
+  Exports an MLflow-registered XGBoost model to ONNX format for Triton Inference Server.
+  
+  This component:
+  1. Downloads the specified model from MLflow registry
+  2. Converts XGBoost model to ONNX format
+  3. Validates the ONNX model
+  4. Generates Triton config.pbtxt
+  5. Uploads to Azure Blob Storage in Triton model repository format
+
+inputs:
+  - name: acr_name
+    type: String
+    description: Azure Container Registry name (e.g., myacr.azurecr.io)
+  
+  - name: image_tag
+    type: String
+    description: Docker image tag
+    default: "latest"
+  
+  - name: model_name
+    type: String
+    description: MLflow registered model name
+    default: "spam-detector"
+  
+  - name: model_stage
+    type: String
+    description: Model stage to export (Staging, Production)
+    default: "Staging"
+  
+  - name: model_version
+    type: Integer
+    description: Specific model version (optional, overrides stage)
+    optional: true
+  
+  - name: triton_model_name
+    type: String
+    description: Name for Triton model repository (defaults to model_name)
+    optional: true
+  
+  - name: storage_account
+    type: String
+    description: Azure storage account name
+  
+  - name: model_container
+    type: String
+    description: Azure blob container for models
+    default: "models"
+  
+  - name: mlflow_tracking_uri
+    type: String
+    description: MLflow tracking server URI
+    default: "http://mlflow-service.mlflow.svc.cluster.local:5000"
+
+outputs:
+  - name: model_path
+    type: String
+    description: Azure Blob path to exported ONNX model
+  
+  - name: config_path
+    type: String
+    description: Azure Blob path to Triton config.pbtxt
+  
+  - name: export_metadata
+    type: JsonObject
+    description: Export metadata including model version and metrics
+
+implementation:
+  container:
+    image: "{{inputs.parameters.acr_name}}/model-export:{{inputs.parameters.image_tag}}"
+    command:
+      - python
+      - export_model.py
+    args:
+      - --model-name
+      - "{{inputs.parameters.model_name}}"
+      - --model-stage
+      - "{{inputs.parameters.model_stage}}"
+      - if:
+          cond:
+            isPresent: model_version
+          then:
+            - --model-version
+            - "{{inputs.parameters.model_version}}"
+      - if:
+          cond:
+            isPresent: triton_model_name
+          then:
+            - --triton-model-name
+            - "{{inputs.parameters.triton_model_name}}"
+    env:
+      - name: MLFLOW_TRACKING_URI
+        value: "{{inputs.parameters.mlflow_tracking_uri}}"
+      - name: AZURE_STORAGE_ACCOUNT_NAME
+        value: "{{inputs.parameters.storage_account}}"
+      - name: AZURE_STORAGE_CONTAINER
+        value: "{{inputs.parameters.model_container}}"
+      - name: AZURE_STORAGE_ACCOUNT_KEY
+        valueFrom:
+          secretKeyRef:
+            name: azure-storage-secret
+            key: AZURE_STORAGE_ACCOUNT_KEY
+    resources:
+      limits:
+        cpu: "2"
+        memory: "4Gi"
+      requests:
+        cpu: "1"
+        memory: "2Gi"
+    
+    # Output file writers
+    fileOutputs:
+      model_path: /tmp/outputs/model_path
+      config_path: /tmp/outputs/config_path
+      export_metadata: /tmp/outputs/export_metadata.json
+
+metadata:
+  labels:
+    pipelines.kubeflow.org/component_sdk: "kfp"
+    pipelines.kubeflow.org/component_version: "1.0.0"
+  annotations:
+    author: "ML Team"
+    description: "Model export component for spam detection pipeline"

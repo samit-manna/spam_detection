@@ -1,0 +1,12 @@
+# Batch Inference Dependencies
+# Note: ray is included in the base image (rayproject/ray:2.9.0-py310)
+# pandas must be <2.1.0 for Ray 2.9.0 compatibility
+mlflow==2.9.2
+xgboost==2.0.3
+numpy>=1.24.0,<2.0.0
+pandas>=2.0.0,<2.1.0
+pyarrow>=14.0.0
+adlfs==2023.12.0
+azure-storage-blob==12.19.0
+azure-identity==1.15.0
+scikit-learn>=1.3.0

@@ -1,0 +1,55 @@
+# Example terraform.tfvars file for base infrastructure
+# Copy this file to terraform.tfvars and update with your values
+
+environment         = "dev"
+location            = "eastus"
+project_name        = "mltraining"
+resource_group_name = "" # Leave empty to auto-generate
+
+# Network Configuration
+vnet_address_space           = ["10.0.0.0/16"]
+aks_subnet_address_prefix    = "10.0.1.0/24"
+services_subnet_address_prefix = "10.0.2.0/24"
+gpu_subnet_address_prefix    = "10.0.3.0/24"
+
+# AKS Configuration
+aks_kubernetes_version = "1.28.3"
+aks_system_node_count  = 3
+aks_system_node_vm_size = "Standard_D4s_v3"
+
+# GPU Node Pool - for ML training with GPUs
+aks_gpu_node_count     = 1
+aks_gpu_node_max_count = 5
+aks_gpu_node_vm_size   = "Standard_NC6s_v3" # NVIDIA V100 - adjust based on your needs
+# Other GPU options:
+# - Standard_NC6s_v3: 1x V100 (16GB)
+# - Standard_NC12s_v3: 2x V100 (32GB total)
+# - Standard_NC24s_v3: 4x V100 (64GB total)
+# - Standard_NC4as_T4_v3: 1x T4 (16GB)
+# - Standard_NC8as_T4_v3: 1x T4 (16GB)
+
+# Spot Instance Pool - for cost-effective training
+aks_spot_node_count     = 0
+aks_spot_node_max_count = 10
+aks_spot_node_vm_size   = "Standard_D8s_v3"
+
+# Azure Container Registry
+acr_sku = "Premium" # Options: Basic, Standard, Premium
+
+# Redis Configuration
+deploy_redis   = true
+redis_capacity = 1
+redis_family   = "C"
+redis_sku_name = "Standard" # Options: Basic, Standard, Premium
+
+# Storage Configuration
+storage_account_tier             = "Standard"
+storage_account_replication_type = "LRS" # Options: LRS, GRS, RAGRS, ZRS
+
+# Tags
+tags = {
+  ManagedBy   = "Terraform"
+  Purpose     = "ML-Training"
+  Environment = "dev"
+  Owner       = "ML-Team"
+}

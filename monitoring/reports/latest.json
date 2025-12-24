@@ -1,0 +1,1068 @@
+{
+  "report_id": "drift-20251224-180027",
+  "generated_at": "2025-12-24 18:00:27.865020+00:00",
+  "model_name": "spam-detector",
+  "model_version": "latest",
+  "baseline_version": "latest",
+  "analysis_window": {
+    "start": "2025-12-23 18:00:27.799166+00:00",
+    "end": "2025-12-24 18:00:27.799166+00:00",
+    "num_samples": 112
+  },
+  "overall_drift_detected": true,
+  "drift_score": 0.9998646593166886,
+  "feature_drift": {
+    "url_count": {
+      "feature_name": "url_count",
+      "psi": 6.572986147233599,
+      "ks_statistic": 0.727,
+      "ks_pvalue": 1.5733980640026207e-48,
+      "drift_detected": true,
+      "baseline_mean": 2.652155172413793,
+      "current_mean": -0.5253917392108134,
+      "mean_shift": -3.1775469116246065
+    },
+    "email_count_in_body": {
+      "feature_name": "email_count_in_body",
+      "psi": 9.08733868840671,
+      "ks_statistic": 0.792,
+      "ks_pvalue": 8.601624597510636e-60,
+      "drift_detected": true,
+      "baseline_mean": 1.2883620689655173,
+      "current_mean": -0.6008242186242461,
+      "mean_shift": -1.8891862875897634
+    },
+    "uppercase_ratio": {
+      "feature_name": "uppercase_ratio",
+      "psi": 4.855666463934397,
+      "ks_statistic": 1.0,
+      "ks_pvalue": 1.4055138003704013e-144,
+      "drift_detected": true,
+      "baseline_mean": 0.08204766795720435,
+      "current_mean": -0.6659967403169225,
+      "mean_shift": -0.7480444082741268
+    },
+    "exclamation_count": {
+      "feature_name": "exclamation_count",
+      "psi": 5.72852825761798,
+      "ks_statistic": 0.639,
+      "ks_pvalue": 3.74569196841661e-36,
+      "drift_detected": true,
+      "baseline_mean": 2.2825431034482757,
+      "current_mean": -0.3406419978970709,
+      "mean_shift": -2.6231851013453467
+    },
+    "question_mark_count": {
+      "feature_name": "question_mark_count",
+      "psi": 7.839561488660093,
+      "ks_statistic": 0.777,
+      "ks_pvalue": 5.394243803188472e-57,
+      "drift_detected": true,
+      "baseline_mean": 1.5668103448275863,
+      "current_mean": -0.5687929442389849,
+      "mean_shift": -2.1356032890665713
+    },
+    "avg_word_length": {
+      "feature_name": "avg_word_length",
+      "psi": 10.656744653533302,
+      "ks_statistic": 0.914,
+      "ks_pvalue": 5.626500229302709e-90,
+      "drift_detected": true,
+      "baseline_mean": 6.892973218266284,
+      "current_mean": -0.646064566951209,
+      "mean_shift": -7.539037785217492
+    },
+    "word_count": {
+      "feature_name": "word_count",
+      "psi": 6.5071323313896405,
+      "ks_statistic": 0.726,
+      "ks_pvalue": 2.2603416747882887e-48,
+      "drift_detected": true,
+      "baseline_mean": 269.2915948275862,
+      "current_mean": -0.5519720919865099,
+      "mean_shift": -269.8435669195727
+    },
+    "char_count": {
+      "feature_name": "char_count",
+      "psi": 6.160218665707501,
+      "ks_statistic": 0.724,
+      "ks_pvalue": 4.651110351448166e-48,
+      "drift_detected": true,
+      "baseline_mean": 2128.3157327586205,
+      "current_mean": -0.5498929691259759,
+      "mean_shift": -2128.8656257277466
+    },
+    "has_html": {
+      "feature_name": "has_html",
+      "psi": 12.394322504656051,
+      "ks_statistic": 0.89,
+      "ks_pvalue": 1.688791786911802e-82,
+      "drift_detected": true,
+      "baseline_mean": 0.04827586206896552,
+      "current_mean": -0.2204258846448539,
+      "mean_shift": -0.2687017467138194
+    },
+    "html_to_text_ratio": {
+      "feature_name": "html_to_text_ratio",
+      "psi": 9.650307921442263,
+      "ks_statistic": 0.536,
+      "ks_pvalue": 9.72685576027237e-25,
+      "drift_detected": true,
+      "baseline_mean": 64.86821332762719,
+      "current_mean": -0.07074411588290175,
+      "mean_shift": -64.93895744351009
+    },
+    "subject_length": {
+      "feature_name": "subject_length",
+      "psi": 9.897348386153691,
+      "ks_statistic": 0.973,
+      "ks_pvalue": 4.16690272530064e-117,
+      "drift_detected": true,
+      "baseline_mean": 37.991810344827584,
+      "current_mean": -1.143106918270927,
+      "mean_shift": -39.13491726309851
+    },
+    "subject_has_re": {
+      "feature_name": "subject_has_re",
+      "psi": 11.843258001630904,
+      "ks_statistic": 0.991,
+      "ks_pvalue": 5.992297770887411e-132,
+      "drift_detected": true,
+      "baseline_mean": 0.3775862068965517,
+      "current_mean": -0.7835260324189887,
+      "mean_shift": -1.1611122393155404
+    },
+    "subject_has_fwd": {
+      "feature_name": "subject_has_fwd",
+      "psi": 12.639103824898664,
+      "ks_statistic": 0.865,
+      "ks_pvalue": 9.3990943431549e-76,
+      "drift_detected": true,
+      "baseline_mean": 0.007112068965517242,
+      "current_mean": -0.0823442798115543,
+      "mean_shift": -0.08945634877707154
+    },
+    "subject_all_caps": {
+      "feature_name": "subject_all_caps",
+      "psi": 12.50130921552196,
+      "ks_statistic": 0.889,
+      "ks_pvalue": 3.275424175741212e-82,
+      "drift_detected": true,
+      "baseline_mean": 0.02521551724137931,
+      "current_mean": -0.16030504218137281,
+      "mean_shift": -0.1855205594227521
+    },
+    "has_x_mailer": {
+      "feature_name": "has_x_mailer",
+      "psi": 11.841152638866076,
+      "ks_statistic": 0.992,
+      "ks_pvalue": 4.947768801650154e-133,
+      "drift_detected": true,
+      "baseline_mean": 0.38146551724137934,
+      "current_mean": -0.7857666281408189,
+      "mean_shift": -1.167232145382198
+    },
+    "sender_domain_length": {
+      "feature_name": "sender_domain_length",
+      "psi": 4.2318764045428585,
+      "ks_statistic": 0.998,
+      "ks_pvalue": 7.239801585707932e-141,
+      "drift_detected": true,
+      "baseline_mean": 12.835991379310345,
+      "current_mean": -0.37232157775012753,
+      "mean_shift": -13.208312957060473
+    },
+    "sender_has_numbers": {
+      "feature_name": "sender_has_numbers",
+      "psi": 12.107975218401185,
+      "ks_statistic": 1.0,
+      "ks_pvalue": 1.4055138003704013e-144,
+      "drift_detected": true,
+      "baseline_mean": 0.15301724137931033,
+      "current_mean": 2.3429704414504577,
+      "mean_shift": 2.1899532000711472
+    },
+    "received_hop_count": {
+      "feature_name": "received_hop_count",
+      "psi": 3.6519740847121556,
+      "ks_statistic": 1.0,
+      "ks_pvalue": 1.4055138003704013e-144,
+      "drift_detected": true,
+      "baseline_mean": 5.43146551724138,
+      "current_mean": -2.309060991895077,
+      "mean_shift": -7.740526509136457
+    },
+    "hour_of_day": {
+      "feature_name": "hour_of_day",
+      "psi": 13.559577691952464,
+      "ks_statistic": 0.946,
+      "ks_pvalue": 2.036446592033036e-102,
+      "drift_detected": true,
+      "baseline_mean": 12.078879310344828,
+      "current_mean": -0.011842899951728833,
+      "mean_shift": -12.090722210296557
+    },
+    "day_of_week": {
+      "feature_name": "day_of_week",
+      "psi": 11.497019532572125,
+      "ks_statistic": 0.936,
+      "ks_pvalue": 4.024797842211926e-98,
+      "drift_detected": true,
+      "baseline_mean": 2.485344827586207,
+      "current_mean": -0.25220040127198873,
+      "mean_shift": -2.737545228858196
+    },
+    "is_weekend": {
+      "feature_name": "is_weekend",
+      "psi": 27.128751016035185,
+      "ks_statistic": 0.912,
+      "ks_pvalue": 2.6370722718617463e-89,
+      "drift_detected": true,
+      "baseline_mean": 0.1495689655172414,
+      "current_mean": -0.3788086954888827,
+      "mean_shift": -0.528377661006124
+    },
+    "is_night_hour": {
+      "feature_name": "is_night_hour",
+      "psi": 26.990484559479988,
+      "ks_statistic": 0.962,
+      "ks_pvalue": 1.9933802854096612e-110,
+      "drift_detected": true,
+      "baseline_mean": 0.25646551724137934,
+      "current_mean": -0.5545812150126611,
+      "mean_shift": -0.8110467322540404
+    },
+    "spam_keyword_count": {
+      "feature_name": "spam_keyword_count",
+      "psi": 6.843326345070681,
+      "ks_statistic": 0.888,
+      "ks_pvalue": 6.328541295507228e-82,
+      "drift_detected": true,
+      "baseline_mean": 1.1043103448275862,
+      "current_mean": -0.7446592970786966,
+      "mean_shift": -1.8489696419062827
+    },
+    "has_unsubscribe": {
+      "feature_name": "has_unsubscribe",
+      "psi": 12.24883559587803,
+      "ks_statistic": 0.914,
+      "ks_pvalue": 5.626500229302709e-90,
+      "drift_detected": true,
+      "baseline_mean": 0.09267241379310345,
+      "current_mean": -0.3201017064389125,
+      "mean_shift": -0.412774120232016
+    },
+    "email_count": {
+      "feature_name": "email_count",
+      "psi": 9.111478460594453,
+      "ks_statistic": 0.707,
+      "ks_pvalue": 1.836369220575719e-45,
+      "drift_detected": true,
+      "baseline_mean": 121.62198275862069,
+      "current_mean": -0.5494574299240014,
+      "mean_shift": -122.1714401885447
+    },
+    "spam_count": {
+      "feature_name": "spam_count",
+      "psi": 8.908125442749474,
+      "ks_statistic": 0.643,
+      "ks_pvalue": 1.1724975252772054e-36,
+      "drift_detected": true,
+      "baseline_mean": 19.901508620689654,
+      "current_mean": -0.3814868240245439,
+      "mean_shift": -20.2829954447142
+    },
+    "ham_count": {
+      "feature_name": "ham_count",
+      "psi": 10.4013624445049,
+      "ks_statistic": 0.681,
+      "ks_pvalue": 1.0372894733188411e-41,
+      "drift_detected": true,
+      "baseline_mean": 101.72047413793103,
+      "current_mean": -0.47014314650166,
+      "mean_shift": -102.19061728443269
+    },
+    "spam_ratio": {
+      "feature_name": "spam_ratio",
+      "psi": 26.453655234833718,
+      "ks_statistic": 0.546,
+      "ks_pvalue": 1.0054429030750526e-25,
+      "drift_detected": true,
+      "baseline_mean": 0.32741315980852004,
+      "current_mean": 0.3920610553275635,
+      "mean_shift": 0.06464789551904349
+    },
+    "tfidf_0": {
+      "feature_name": "tfidf_0",
+      "psi": 4.4550005643260056,
+      "ks_statistic": 1.0,
+      "ks_pvalue": 1.4055138003704013e-144,
+      "drift_detected": true,
+      "baseline_mean": 0.027147429684163355,
+      "current_mean": -0.3688629144210153,
+      "mean_shift": -0.39601034410517866
+    },
+    "tfidf_1": {
+      "feature_name": "tfidf_1",
+      "psi": 7.13312570624859,
+      "ks_statistic": 1.0,
+      "ks_pvalue": 1.4055138003704013e-144,
+      "drift_detected": true,
+      "baseline_mean": 0.014324912534926843,
+      "current_mean": -0.2569905184730513,
+      "mean_shift": -0.27131543100797817
+    },
+    "tfidf_2": {
+      "feature_name": "tfidf_2",
+      "psi": 5.560707721966228,
+      "ks_statistic": 1.0,
+      "ks_pvalue": 1.4055138003704013e-144,
+      "drift_detected": true,
+      "baseline_mean": 0.006849121053514715,
+      "current_mean": -0.25705667464765236,
+      "mean_shift": -0.26390579570116707
+    },
+    "tfidf_3": {
+      "feature_name": "tfidf_3",
+      "psi": 8.818182696160925,
+      "ks_statistic": 1.0,
+      "ks_pvalue": 1.4055138003704013e-144,
+      "drift_detected": true,
+      "baseline_mean": 0.0020201236797935617,
+      "current_mean": -0.11864987640983561,
+      "mean_shift": -0.12067000008962918
+    },
+    "tfidf_4": {
+      "feature_name": "tfidf_4",
+      "psi": 7.271559091597574,
+      "ks_statistic": 1.0,
+      "ks_pvalue": 1.4055138003704013e-144,
+      "drift_detected": true,
+      "baseline_mean": 0.0026394293777123874,
+      "current_mean": -0.1484061314890817,
+      "mean_shift": -0.15104556086679408
+    },
+    "tfidf_5": {
+      "feature_name": "tfidf_5",
+      "psi": 5.843339123491949,
+      "ks_statistic": 1.0,
+      "ks_pvalue": 1.4055138003704013e-144,
+      "drift_detected": true,
+      "baseline_mean": 0.019906622256488135,
+      "current_mean": -0.26571047786223856,
+      "mean_shift": -0.2856171001187267
+    },
+    "tfidf_6": {
+      "feature_name": "tfidf_6",
+      "psi": 5.830145234499598,
+      "ks_statistic": 1.0,
+      "ks_pvalue": 1.4055138003704013e-144,
+      "drift_detected": true,
+      "baseline_mean": 0.011090560287283295,
+      "current_mean": -0.23509838107471825,
+      "mean_shift": -0.24618894136200156
+    },
+    "tfidf_7": {
+      "feature_name": "tfidf_7",
+      "psi": 5.521495728111885,
+      "ks_statistic": 1.0,
+      "ks_pvalue": 1.4055138003704013e-144,
+      "drift_detected": true,
+      "baseline_mean": 0.012609777223840352,
+      "current_mean": -0.2422200905870698,
+      "mean_shift": -0.25482986781091016
+    },
+    "tfidf_8": {
+      "feature_name": "tfidf_8",
+      "psi": 5.285504124640604,
+      "ks_statistic": 1.0,
+      "ks_pvalue": 1.4055138003704013e-144,
+      "drift_detected": true,
+      "baseline_mean": 0.02039797200997258,
+      "current_mean": -0.27107978964964635,
+      "mean_shift": -0.2914777616596189
+    },
+    "tfidf_9": {
+      "feature_name": "tfidf_9",
+      "psi": 9.416566248942145,
+      "ks_statistic": 1.0,
+      "ks_pvalue": 1.4055138003704013e-144,
+      "drift_detected": true,
+      "baseline_mean": 0.0008331539922825387,
+      "current_mean": -0.062091172802379496,
+      "mean_shift": -0.06292432679466203
+    },
+    "tfidf_10": {
+      "feature_name": "tfidf_10",
+      "psi": 4.207358684362289,
+      "ks_statistic": 0.99,
+      "ks_pvalue": 6.591527548115313e-131,
+      "drift_detected": true,
+      "baseline_mean": 0.026660684967721848,
+      "current_mean": -0.3547952493007539,
+      "mean_shift": -0.38145593426847574
+    },
+    "tfidf_11": {
+      "feature_name": "tfidf_11",
+      "psi": 4.775625112837313,
+      "ks_statistic": 0.99,
+      "ks_pvalue": 6.591527548115313e-131,
+      "drift_detected": true,
+      "baseline_mean": 0.013049398377262466,
+      "current_mean": -0.2040713651556593,
+      "mean_shift": -0.21712076353292176
+    },
+    "tfidf_12": {
+      "feature_name": "tfidf_12",
+      "psi": 5.093993323779611,
+      "ks_statistic": 0.99,
+      "ks_pvalue": 6.591527548115313e-131,
+      "drift_detected": true,
+      "baseline_mean": 0.012149555863710238,
+      "current_mean": -0.15292694886424976,
+      "mean_shift": -0.16507650472796
+    },
+    "tfidf_13": {
+      "feature_name": "tfidf_13",
+      "psi": 5.714426181586682,
+      "ks_statistic": 0.99,
+      "ks_pvalue": 6.591527548115313e-131,
+      "drift_detected": true,
+      "baseline_mean": 0.013299547380453577,
+      "current_mean": -0.18075260614569522,
+      "mean_shift": -0.1940521535261488
+    },
+    "tfidf_14": {
+      "feature_name": "tfidf_14",
+      "psi": 5.6336549695259235,
+      "ks_statistic": 0.99,
+      "ks_pvalue": 6.591527548115313e-131,
+      "drift_detected": true,
+      "baseline_mean": 0.008292964909264136,
+      "current_mean": -0.0610226095489198,
+      "mean_shift": -0.06931557445818393
+    },
+    "tfidf_15": {
+      "feature_name": "tfidf_15",
+      "psi": 6.063483621310907,
+      "ks_statistic": 0.99,
+      "ks_pvalue": 6.591527548115313e-131,
+      "drift_detected": true,
+      "baseline_mean": 0.009244637269929107,
+      "current_mean": -0.08120049516855964,
+      "mean_shift": -0.09044513243848874
+    },
+    "tfidf_16": {
+      "feature_name": "tfidf_16",
+      "psi": 5.896722369120396,
+      "ks_statistic": 0.99,
+      "ks_pvalue": 6.591527548115313e-131,
+      "drift_detected": true,
+      "baseline_mean": 0.010329532908031382,
+      "current_mean": -0.12945087808927594,
+      "mean_shift": -0.13978041099730731
+    },
+    "tfidf_17": {
+      "feature_name": "tfidf_17",
+      "psi": 6.0641496974580065,
+      "ks_statistic": 0.99,
+      "ks_pvalue": 6.591527548115313e-131,
+      "drift_detected": true,
+      "baseline_mean": 0.00867890862720633,
+      "current_mean": -0.07118257722109264,
+      "mean_shift": -0.07986148584829897
+    },
+    "tfidf_18": {
+      "feature_name": "tfidf_18",
+      "psi": 6.670485156098548,
+      "ks_statistic": 0.99,
+      "ks_pvalue": 6.591527548115313e-131,
+      "drift_detected": true,
+      "baseline_mean": 0.007157909692416945,
+      "current_mean": -0.024900077773411845,
+      "mean_shift": -0.03205798746582879
+    },
+    "tfidf_19": {
+      "feature_name": "tfidf_19",
+      "psi": 7.109089396974143,
+      "ks_statistic": 0.99,
+      "ks_pvalue": 6.591527548115313e-131,
+      "drift_detected": true,
+      "baseline_mean": 0.009406071819063402,
+      "current_mean": -0.10579176956001902,
+      "mean_shift": -0.11519784137908243
+    },
+    "tfidf_20": {
+      "feature_name": "tfidf_20",
+      "psi": 5.8456840667273,
+      "ks_statistic": 0.99,
+      "ks_pvalue": 6.591527548115313e-131,
+      "drift_detected": true,
+      "baseline_mean": 0.010045812964553895,
+      "current_mean": -0.10347339295191216,
+      "mean_shift": -0.11351920591646605
+    },
+    "tfidf_21": {
+      "feature_name": "tfidf_21",
+      "psi": 5.866048875362269,
+      "ks_statistic": 0.99,
+      "ks_pvalue": 6.591527548115313e-131,
+      "drift_detected": true,
+      "baseline_mean": 0.012062452034344645,
+      "current_mean": -0.15392592993029414,
+      "mean_shift": -0.16598838196463878
+    }
+  },
+  "prediction_drift": null,
+  "data_quality": {
+    "missing_values_pct": 10.714285714285714,
+    "out_of_range_pct": 80.35714285714286,
+    "null_features_count": 0,
+    "issues_detected": true
+  },
+  "alerts": [
+    {
+      "severity": "critical",
+      "feature": null,
+      "message": "Critical drift detected: overall drift score 99.99% exceeds threshold 50%",
+      "recommendation": "Immediate investigation required. Consider pausing model predictions and initiating retraining.",
+      "metric_name": "drift_score",
+      "metric_value": 0.9998646593166886,
+      "threshold": 0.5
+    },
+    {
+      "severity": "warning",
+      "feature": null,
+      "message": "Multiple features drifted: 50 features show drift",
+      "recommendation": "Investigate data pipeline for changes. Drifted features: url_count, email_count_in_body, uppercase_ratio, exclamation_count, question_mark_count",
+      "metric_name": "features_drifted_count",
+      "metric_value": 50.0,
+      "threshold": 3.0
+    },
+    {
+      "severity": "warning",
+      "feature": "url_count",
+      "message": "Feature drift detected: url_count has PSI 6.573",
+      "recommendation": "Investigate changes in url_count. Mean shifted from 2.652 to -0.525",
+      "metric_name": "feature_psi",
+      "metric_value": 6.572986147233599,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "email_count_in_body",
+      "message": "Feature drift detected: email_count_in_body has PSI 9.087",
+      "recommendation": "Investigate changes in email_count_in_body. Mean shifted from 1.288 to -0.601",
+      "metric_name": "feature_psi",
+      "metric_value": 9.08733868840671,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "uppercase_ratio",
+      "message": "Feature drift detected: uppercase_ratio has PSI 4.856",
+      "recommendation": "Investigate changes in uppercase_ratio. Mean shifted from 0.082 to -0.666",
+      "metric_name": "feature_psi",
+      "metric_value": 4.855666463934397,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "exclamation_count",
+      "message": "Feature drift detected: exclamation_count has PSI 5.729",
+      "recommendation": "Investigate changes in exclamation_count. Mean shifted from 2.283 to -0.341",
+      "metric_name": "feature_psi",
+      "metric_value": 5.72852825761798,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "question_mark_count",
+      "message": "Feature drift detected: question_mark_count has PSI 7.840",
+      "recommendation": "Investigate changes in question_mark_count. Mean shifted from 1.567 to -0.569",
+      "metric_name": "feature_psi",
+      "metric_value": 7.839561488660093,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "avg_word_length",
+      "message": "Feature drift detected: avg_word_length has PSI 10.657",
+      "recommendation": "Investigate changes in avg_word_length. Mean shifted from 6.893 to -0.646",
+      "metric_name": "feature_psi",
+      "metric_value": 10.656744653533302,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "word_count",
+      "message": "Feature drift detected: word_count has PSI 6.507",
+      "recommendation": "Investigate changes in word_count. Mean shifted from 269.292 to -0.552",
+      "metric_name": "feature_psi",
+      "metric_value": 6.5071323313896405,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "char_count",
+      "message": "Feature drift detected: char_count has PSI 6.160",
+      "recommendation": "Investigate changes in char_count. Mean shifted from 2128.316 to -0.550",
+      "metric_name": "feature_psi",
+      "metric_value": 6.160218665707501,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "has_html",
+      "message": "Feature drift detected: has_html has PSI 12.394",
+      "recommendation": "Investigate changes in has_html. Mean shifted from 0.048 to -0.220",
+      "metric_name": "feature_psi",
+      "metric_value": 12.394322504656051,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "html_to_text_ratio",
+      "message": "Feature drift detected: html_to_text_ratio has PSI 9.650",
+      "recommendation": "Investigate changes in html_to_text_ratio. Mean shifted from 64.868 to -0.071",
+      "metric_name": "feature_psi",
+      "metric_value": 9.650307921442263,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "subject_length",
+      "message": "Feature drift detected: subject_length has PSI 9.897",
+      "recommendation": "Investigate changes in subject_length. Mean shifted from 37.992 to -1.143",
+      "metric_name": "feature_psi",
+      "metric_value": 9.897348386153691,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "subject_has_re",
+      "message": "Feature drift detected: subject_has_re has PSI 11.843",
+      "recommendation": "Investigate changes in subject_has_re. Mean shifted from 0.378 to -0.784",
+      "metric_name": "feature_psi",
+      "metric_value": 11.843258001630904,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "subject_has_fwd",
+      "message": "Feature drift detected: subject_has_fwd has PSI 12.639",
+      "recommendation": "Investigate changes in subject_has_fwd. Mean shifted from 0.007 to -0.082",
+      "metric_name": "feature_psi",
+      "metric_value": 12.639103824898664,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "subject_all_caps",
+      "message": "Feature drift detected: subject_all_caps has PSI 12.501",
+      "recommendation": "Investigate changes in subject_all_caps. Mean shifted from 0.025 to -0.160",
+      "metric_name": "feature_psi",
+      "metric_value": 12.50130921552196,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "has_x_mailer",
+      "message": "Feature drift detected: has_x_mailer has PSI 11.841",
+      "recommendation": "Investigate changes in has_x_mailer. Mean shifted from 0.381 to -0.786",
+      "metric_name": "feature_psi",
+      "metric_value": 11.841152638866076,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "sender_domain_length",
+      "message": "Feature drift detected: sender_domain_length has PSI 4.232",
+      "recommendation": "Investigate changes in sender_domain_length. Mean shifted from 12.836 to -0.372",
+      "metric_name": "feature_psi",
+      "metric_value": 4.2318764045428585,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "sender_has_numbers",
+      "message": "Feature drift detected: sender_has_numbers has PSI 12.108",
+      "recommendation": "Investigate changes in sender_has_numbers. Mean shifted from 0.153 to 2.343",
+      "metric_name": "feature_psi",
+      "metric_value": 12.107975218401185,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "received_hop_count",
+      "message": "Feature drift detected: received_hop_count has PSI 3.652",
+      "recommendation": "Investigate changes in received_hop_count. Mean shifted from 5.431 to -2.309",
+      "metric_name": "feature_psi",
+      "metric_value": 3.6519740847121556,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "hour_of_day",
+      "message": "Feature drift detected: hour_of_day has PSI 13.560",
+      "recommendation": "Investigate changes in hour_of_day. Mean shifted from 12.079 to -0.012",
+      "metric_name": "feature_psi",
+      "metric_value": 13.559577691952464,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "day_of_week",
+      "message": "Feature drift detected: day_of_week has PSI 11.497",
+      "recommendation": "Investigate changes in day_of_week. Mean shifted from 2.485 to -0.252",
+      "metric_name": "feature_psi",
+      "metric_value": 11.497019532572125,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "is_weekend",
+      "message": "Feature drift detected: is_weekend has PSI 27.129",
+      "recommendation": "Investigate changes in is_weekend. Mean shifted from 0.150 to -0.379",
+      "metric_name": "feature_psi",
+      "metric_value": 27.128751016035185,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "is_night_hour",
+      "message": "Feature drift detected: is_night_hour has PSI 26.990",
+      "recommendation": "Investigate changes in is_night_hour. Mean shifted from 0.256 to -0.555",
+      "metric_name": "feature_psi",
+      "metric_value": 26.990484559479988,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "spam_keyword_count",
+      "message": "Feature drift detected: spam_keyword_count has PSI 6.843",
+      "recommendation": "Investigate changes in spam_keyword_count. Mean shifted from 1.104 to -0.745",
+      "metric_name": "feature_psi",
+      "metric_value": 6.843326345070681,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "has_unsubscribe",
+      "message": "Feature drift detected: has_unsubscribe has PSI 12.249",
+      "recommendation": "Investigate changes in has_unsubscribe. Mean shifted from 0.093 to -0.320",
+      "metric_name": "feature_psi",
+      "metric_value": 12.24883559587803,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "email_count",
+      "message": "Feature drift detected: email_count has PSI 9.111",
+      "recommendation": "Investigate changes in email_count. Mean shifted from 121.622 to -0.549",
+      "metric_name": "feature_psi",
+      "metric_value": 9.111478460594453,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "spam_count",
+      "message": "Feature drift detected: spam_count has PSI 8.908",
+      "recommendation": "Investigate changes in spam_count. Mean shifted from 19.902 to -0.381",
+      "metric_name": "feature_psi",
+      "metric_value": 8.908125442749474,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "ham_count",
+      "message": "Feature drift detected: ham_count has PSI 10.401",
+      "recommendation": "Investigate changes in ham_count. Mean shifted from 101.720 to -0.470",
+      "metric_name": "feature_psi",
+      "metric_value": 10.4013624445049,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "spam_ratio",
+      "message": "Feature drift detected: spam_ratio has PSI 26.454",
+      "recommendation": "Investigate changes in spam_ratio. Mean shifted from 0.327 to 0.392",
+      "metric_name": "feature_psi",
+      "metric_value": 26.453655234833718,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_0",
+      "message": "Feature drift detected: tfidf_0 has PSI 4.455",
+      "recommendation": "Investigate changes in tfidf_0. Mean shifted from 0.027 to -0.369",
+      "metric_name": "feature_psi",
+      "metric_value": 4.4550005643260056,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_1",
+      "message": "Feature drift detected: tfidf_1 has PSI 7.133",
+      "recommendation": "Investigate changes in tfidf_1. Mean shifted from 0.014 to -0.257",
+      "metric_name": "feature_psi",
+      "metric_value": 7.13312570624859,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_2",
+      "message": "Feature drift detected: tfidf_2 has PSI 5.561",
+      "recommendation": "Investigate changes in tfidf_2. Mean shifted from 0.007 to -0.257",
+      "metric_name": "feature_psi",
+      "metric_value": 5.560707721966228,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_3",
+      "message": "Feature drift detected: tfidf_3 has PSI 8.818",
+      "recommendation": "Investigate changes in tfidf_3. Mean shifted from 0.002 to -0.119",
+      "metric_name": "feature_psi",
+      "metric_value": 8.818182696160925,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_4",
+      "message": "Feature drift detected: tfidf_4 has PSI 7.272",
+      "recommendation": "Investigate changes in tfidf_4. Mean shifted from 0.003 to -0.148",
+      "metric_name": "feature_psi",
+      "metric_value": 7.271559091597574,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_5",
+      "message": "Feature drift detected: tfidf_5 has PSI 5.843",
+      "recommendation": "Investigate changes in tfidf_5. Mean shifted from 0.020 to -0.266",
+      "metric_name": "feature_psi",
+      "metric_value": 5.843339123491949,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_6",
+      "message": "Feature drift detected: tfidf_6 has PSI 5.830",
+      "recommendation": "Investigate changes in tfidf_6. Mean shifted from 0.011 to -0.235",
+      "metric_name": "feature_psi",
+      "metric_value": 5.830145234499598,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_7",
+      "message": "Feature drift detected: tfidf_7 has PSI 5.521",
+      "recommendation": "Investigate changes in tfidf_7. Mean shifted from 0.013 to -0.242",
+      "metric_name": "feature_psi",
+      "metric_value": 5.521495728111885,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_8",
+      "message": "Feature drift detected: tfidf_8 has PSI 5.286",
+      "recommendation": "Investigate changes in tfidf_8. Mean shifted from 0.020 to -0.271",
+      "metric_name": "feature_psi",
+      "metric_value": 5.285504124640604,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_9",
+      "message": "Feature drift detected: tfidf_9 has PSI 9.417",
+      "recommendation": "Investigate changes in tfidf_9. Mean shifted from 0.001 to -0.062",
+      "metric_name": "feature_psi",
+      "metric_value": 9.416566248942145,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_10",
+      "message": "Feature drift detected: tfidf_10 has PSI 4.207",
+      "recommendation": "Investigate changes in tfidf_10. Mean shifted from 0.027 to -0.355",
+      "metric_name": "feature_psi",
+      "metric_value": 4.207358684362289,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_11",
+      "message": "Feature drift detected: tfidf_11 has PSI 4.776",
+      "recommendation": "Investigate changes in tfidf_11. Mean shifted from 0.013 to -0.204",
+      "metric_name": "feature_psi",
+      "metric_value": 4.775625112837313,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_12",
+      "message": "Feature drift detected: tfidf_12 has PSI 5.094",
+      "recommendation": "Investigate changes in tfidf_12. Mean shifted from 0.012 to -0.153",
+      "metric_name": "feature_psi",
+      "metric_value": 5.093993323779611,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_13",
+      "message": "Feature drift detected: tfidf_13 has PSI 5.714",
+      "recommendation": "Investigate changes in tfidf_13. Mean shifted from 0.013 to -0.181",
+      "metric_name": "feature_psi",
+      "metric_value": 5.714426181586682,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_14",
+      "message": "Feature drift detected: tfidf_14 has PSI 5.634",
+      "recommendation": "Investigate changes in tfidf_14. Mean shifted from 0.008 to -0.061",
+      "metric_name": "feature_psi",
+      "metric_value": 5.6336549695259235,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_15",
+      "message": "Feature drift detected: tfidf_15 has PSI 6.063",
+      "recommendation": "Investigate changes in tfidf_15. Mean shifted from 0.009 to -0.081",
+      "metric_name": "feature_psi",
+      "metric_value": 6.063483621310907,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_16",
+      "message": "Feature drift detected: tfidf_16 has PSI 5.897",
+      "recommendation": "Investigate changes in tfidf_16. Mean shifted from 0.010 to -0.129",
+      "metric_name": "feature_psi",
+      "metric_value": 5.896722369120396,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_17",
+      "message": "Feature drift detected: tfidf_17 has PSI 6.064",
+      "recommendation": "Investigate changes in tfidf_17. Mean shifted from 0.009 to -0.071",
+      "metric_name": "feature_psi",
+      "metric_value": 6.0641496974580065,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_18",
+      "message": "Feature drift detected: tfidf_18 has PSI 6.670",
+      "recommendation": "Investigate changes in tfidf_18. Mean shifted from 0.007 to -0.025",
+      "metric_name": "feature_psi",
+      "metric_value": 6.670485156098548,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_19",
+      "message": "Feature drift detected: tfidf_19 has PSI 7.109",
+      "recommendation": "Investigate changes in tfidf_19. Mean shifted from 0.009 to -0.106",
+      "metric_name": "feature_psi",
+      "metric_value": 7.109089396974143,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_20",
+      "message": "Feature drift detected: tfidf_20 has PSI 5.846",
+      "recommendation": "Investigate changes in tfidf_20. Mean shifted from 0.010 to -0.103",
+      "metric_name": "feature_psi",
+      "metric_value": 5.8456840667273,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": "tfidf_21",
+      "message": "Feature drift detected: tfidf_21 has PSI 5.866",
+      "recommendation": "Investigate changes in tfidf_21. Mean shifted from 0.012 to -0.154",
+      "metric_name": "feature_psi",
+      "metric_value": 5.866048875362269,
+      "threshold": 0.2
+    },
+    {
+      "severity": "warning",
+      "feature": null,
+      "message": "Data quality issue: 10.7% missing values",
+      "recommendation": "Check data pipeline for issues. Missing data may impact prediction quality.",
+      "metric_name": "missing_values_pct",
+      "metric_value": 10.714285714285714,
+      "threshold": 5.0
+    },
+    {
+      "severity": "warning",
+      "feature": null,
+      "message": "Data quality issue: 80.4% out-of-range values",
+      "recommendation": "Investigate data source for anomalies or schema changes.",
+      "metric_name": "out_of_range_pct",
+      "metric_value": 80.35714285714286,
+      "threshold": 1.0
+    }
+  ],
+  "total_features": 50,
+  "features_drifted_count": 50,
+  "features_drifted_names": [
+    "url_count",
+    "email_count_in_body",
+    "uppercase_ratio",
+    "exclamation_count",
+    "question_mark_count",
+    "avg_word_length",
+    "word_count",
+    "char_count",
+    "has_html",
+    "html_to_text_ratio",
+    "subject_length",
+    "subject_has_re",
+    "subject_has_fwd",
+    "subject_all_caps",
+    "has_x_mailer",
+    "sender_domain_length",
+    "sender_has_numbers",
+    "received_hop_count",
+    "hour_of_day",
+    "day_of_week",
+    "is_weekend",
+    "is_night_hour",
+    "spam_keyword_count",
+    "has_unsubscribe",
+    "email_count",
+    "spam_count",
+    "ham_count",
+    "spam_ratio",
+    "tfidf_0",
+    "tfidf_1",
+    "tfidf_2",
+    "tfidf_3",
+    "tfidf_4",
+    "tfidf_5",
+    "tfidf_6",
+    "tfidf_7",
+    "tfidf_8",
+    "tfidf_9",
+    "tfidf_10",
+    "tfidf_11",
+    "tfidf_12",
+    "tfidf_13",
+    "tfidf_14",
+    "tfidf_15",
+    "tfidf_16",
+    "tfidf_17",
+    "tfidf_18",
+    "tfidf_19",
+    "tfidf_20",
+    "tfidf_21"
+  ],
+  "evidently_report_path": null,
+  "baseline_path": "baselines/spam-detector/latest/baseline.json",
+  "inference_logs_path": "inference-logs/"
+}

@@ -1,0 +1,378 @@
+# Feast Materialization CronJob
+#
+# This job syncs features from the offline store (Azure Blob) to the online store (Redis).
+# Runs hourly to keep online features up to date.
+#
+# Prerequisites:
+#   - Feast deployed via Terraform (../terraform/ml-platform)
+#   - Feature definitions applied (feast apply)
+#   - Azure storage secret configured
+#
+# Usage:
+#   kubectl apply -f materialize_job.yaml
+#
+#   # Manual trigger
+#   kubectl create job --from=cronjob/feast-materialize feast-materialize-manual -n feast
+---
+# Azure Storage Secret for Feast
+apiVersion: v1
+kind: Secret
+metadata:
+  name: azure-storage-secret
+  namespace: feast
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: ""
+type: Opaque
+stringData:
+  AZURE_STORAGE_ACCOUNT_NAME: "${AZURE_STORAGE_ACCOUNT_NAME}"
+  AZURE_STORAGE_ACCOUNT_KEY: "${AZURE_STORAGE_ACCOUNT_KEY}"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: feast-feature-repo
+  namespace: feast
+data:
+  feature_store.yaml: |
+    project: spam_detection
+    provider: local
+    registry: /data/registry.db
+    offline_store:
+      type: file
+    online_store:
+      type: redis
+      connection_string: redis://feast-redis.feast.svc.cluster.local:6379/0
+    entity_key_serialization_version: 3
+---
+# ConfigMap with feature definitions
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: feast-features
+  namespace: feast
+data:
+  features.py: |
+    import os
+    from datetime import timedelta
+    from feast import Entity, FeatureView, Field, FileSource, FeatureService
+    from feast.types import Float32, Int64, String
+    
+    STORAGE_ACCOUNT_NAME = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME", "")
+    BASE_PATH = f"abfss://feast@{STORAGE_ACCOUNT_NAME}.dfs.core.windows.net/features"
+    
+    sender_domain = Entity(
+        name="sender_domain",
+        join_keys=["sender_domain"],
+    )
+    
+    sender_features_source = FileSource(
+        name="sender_features_source",
+        path=f"{BASE_PATH}/sender_features/data.parquet",
+        timestamp_field="event_timestamp",
+    )
+    
+    sender_domain_features = FeatureView(
+        name="sender_domain_features",
+        entities=[sender_domain],
+        ttl=timedelta(days=30),
+        schema=[
+            Field(name="email_count", dtype=Int64),
+            Field(name="spam_count", dtype=Int64),
+            Field(name="ham_count", dtype=Int64),
+            Field(name="spam_ratio", dtype=Float32),
+        ],
+        source=sender_features_source,
+        online=True,
+    )
+---
+# ConfigMap with materialize script
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: feast-scripts
+  namespace: feast
+data:
+  materialize.py: |
+    #!/usr/bin/env python3
+    """
+    Feast materialization script that handles Azure storage properly.
+    
+    This script:
+    1. Registers the Azure filesystem handler before importing Feast
+    2. Uses Feast Python API to apply and materialize
+    """
+    import os
+    import sys
+    
+    # IMPORTANT: Register Azure filesystem BEFORE importing feast
+    # This allows pyarrow to understand abfss:// and abfs:// URIs
+    import fsspec
+    fsspec.register_implementation("abfss", "adlfs.AzureBlobFileSystem", clobber=True)
+    fsspec.register_implementation("abfs", "adlfs.AzureBlobFileSystem", clobber=True)
+    
+    from datetime import datetime, timedelta
+    from feast import FeatureStore
+    
+    def main():
+        storage_account = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME", "")
+        print(f"Using storage account: {storage_account}")
+        
+        # Initialize store
+        print("Initializing feature store...")
+        store = FeatureStore(repo_path=".")
+        
+        # Apply feature definitions
+        print("Applying feature definitions...")
+        try:
+            # Use the store's apply method which handles objects from the repo
+            store.apply([])  # Empty list triggers refresh from feature definitions
+            print("Feature definitions applied successfully")
+        except Exception as e:
+            print(f"Warning during apply (may be OK): {e}")
+            # Continue anyway - the definitions might already be applied
+        
+        # Materialize
+        end_date = datetime.utcnow()
+        
+        # Check if this is initial or incremental
+        if len(sys.argv) > 1 and sys.argv[1] == "--incremental":
+            print(f"Running incremental materialization up to {end_date}")
+            try:
+                store.materialize_incremental(end_date=end_date)
+                print("Incremental materialization complete")
+            except Exception as e:
+                print(f"Error during materialization: {e}")
+                sys.exit(1)
+        else:
+            # Full materialization for last 30 days
+            start_date = end_date - timedelta(days=30)
+            print(f"Materializing from {start_date} to {end_date}")
+            try:
+                store.materialize(start_date=start_date, end_date=end_date)
+                print("Materialization complete")
+            except Exception as e:
+                print(f"Error during materialization: {e}")
+                sys.exit(1)
+    
+    if __name__ == "__main__":
+        main()
+---
+# CronJob for hourly materialization
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: feast-materialize
+  namespace: feast
+  labels:
+    app: feast-materialize
+spec:
+  # Run every hour
+  schedule: "0 * * * *"
+  
+  # Don't allow concurrent runs
+  concurrencyPolicy: Forbid
+  
+  # Keep history
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  
+  # Start deadline
+  startingDeadlineSeconds: 300
+  
+  jobTemplate:
+    spec:
+      # Job timeout
+      activeDeadlineSeconds: 1800  # 30 minutes
+      
+      # Retry policy
+      backoffLimit: 3
+      
+      template:
+        metadata:
+          labels:
+            app: feast-materialize
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: feast-sa
+          
+          containers:
+            - name: feast-materialize
+              image: feastdev/feature-server:0.36.0
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -e
+                  echo "Starting Feast materialization..."
+                  
+                  # Copy ConfigMap files to writable directory
+                  cp /feast-defs/* /feast-repo/
+                  cp /scripts/materialize.py /feast-repo/
+                  cd /feast-repo
+                  
+                  # Install Azure dependencies
+                  pip install adlfs azure-storage-blob fsspec pyarrow --quiet
+                  
+                  # Run incremental materialization
+                  echo "Running incremental materialization..."
+                  python3 materialize.py --incremental
+                  
+                  echo "Materialization complete"
+              
+              env:
+                - name: AZURE_STORAGE_ACCOUNT_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: azure-storage-secret
+                      key: AZURE_STORAGE_ACCOUNT_NAME
+                - name: AZURE_STORAGE_ACCOUNT_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: azure-storage-secret
+                      key: AZURE_STORAGE_ACCOUNT_KEY
+                - name: FEAST_REDIS_HOST
+                  value: "feast-redis.feast.svc.cluster.local"
+                - name: FEAST_REDIS_PORT
+                  value: "6379"
+              
+              resources:
+                requests:
+                  cpu: "500m"
+                  memory: "1Gi"
+                limits:
+                  cpu: "2"
+                  memory: "4Gi"
+              
+              volumeMounts:
+                - name: feature-definitions
+                  mountPath: /feast-defs
+                - name: scripts
+                  mountPath: /scripts
+                - name: feast-repo
+                  mountPath: /feast-repo
+                - name: registry
+                  mountPath: /data
+          
+          volumes:
+            - name: feature-definitions
+              projected:
+                sources:
+                  - configMap:
+                      name: feast-feature-repo
+                  - configMap:
+                      name: feast-features
+            - name: scripts
+              configMap:
+                name: feast-scripts
+            - name: feast-repo
+              emptyDir: {}
+            - name: registry
+              persistentVolumeClaim:
+                claimName: feast-registry-pvc
+---
+# ServiceAccount for Feast jobs
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: feast-sa
+  namespace: feast
+---
+# One-time Job for initial materialization
+# NOTE: Before running this job, scale down feast-server to release registry lock:
+#   kubectl scale deployment feast-server -n feast --replicas=0
+#   kubectl wait --for=delete pod -l app=feast,component=feature-server -n feast --timeout=60s
+# After job completes, scale back up:
+#   kubectl scale deployment feast-server -n feast --replicas=1
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: feast-initial-materialize
+  namespace: feast
+spec:
+  ttlSecondsAfterFinished: 86400  # Clean up after 24 hours
+  template:
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: feast-sa
+      
+      containers:
+        - name: feast-materialize
+          image: feastdev/feature-server:0.36.0
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              echo "Running initial Feast materialization..."
+              
+              # Clear old registry to start fresh
+              echo "Clearing old registry..."
+              rm -f /data/registry.db
+              
+              # Copy ConfigMap files to writable directory
+              cp /feast-defs/* /feast-repo/
+              cp /scripts/materialize.py /feast-repo/
+              cd /feast-repo
+              
+              # Install dependencies
+              pip install adlfs azure-storage-blob fsspec pyarrow --quiet
+              
+              echo "Feature store configuration:"
+              cat feature_store.yaml
+              echo ""
+              
+              # Run the materialize script
+              python3 materialize.py
+              
+              echo "Initial materialization complete"
+          
+          env:
+            - name: AZURE_STORAGE_ACCOUNT_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: azure-storage-secret
+                  key: AZURE_STORAGE_ACCOUNT_NAME
+            - name: AZURE_STORAGE_ACCOUNT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: azure-storage-secret
+                  key: AZURE_STORAGE_ACCOUNT_KEY
+            - name: FEAST_REDIS_HOST
+              value: "feast-redis.feast.svc.cluster.local"
+            - name: FEAST_REDIS_PORT
+              value: "6379"
+          
+          resources:
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+          
+          volumeMounts:
+            - name: feature-definitions
+              mountPath: /feast-defs
+            - name: scripts
+              mountPath: /scripts
+            - name: feast-repo
+              mountPath: /feast-repo
+            - name: registry
+              mountPath: /data
+      
+      volumes:
+        - name: feature-definitions
+          projected:
+            sources:
+              - configMap:
+                  name: feast-feature-repo
+              - configMap:
+                  name: feast-features
+        - name: scripts
+          configMap:
+            name: feast-scripts
+        - name: feast-repo
+          emptyDir: {}
+        - name: registry
+          persistentVolumeClaim:
+            claimName: feast-registry-pvc

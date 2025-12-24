@@ -1,0 +1,238 @@
+# Feature Transformer Kubernetes Deployment
+#
+# Deploys the feature transformer service for real-time feature extraction.
+#
+# Usage:
+#   kubectl apply -f deployment.yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: serving
+  labels:
+    app.kubernetes.io/part-of: spam-detection
+    istio-injection: enabled
+---
+# ConfigMap for feature transformer
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: feature-transformer-config
+  namespace: serving
+data:
+  PORT: "8080"
+  AZURE_STORAGE_CONTAINER: "feast"
+  TFIDF_VECTORIZER_PATH: "features/artifacts/tfidf_vectorizer.pkl"
+  FEAST_ENABLED: "true"
+  # Azure Redis from Terraform (uses SSL on port 6380)
+  FEAST_REDIS_HOST: "${REDIS_HOST}"
+  FEAST_REDIS_PORT: "6380"
+  FEAST_REDIS_SSL: "true"
+  FEAST_PROJECT_NAME: "spam_detection"
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: feature-transformer
+  namespace: serving
+  labels:
+    app: feature-transformer
+    version: v1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: feature-transformer
+  template:
+    metadata:
+      labels:
+        app: feature-transformer
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: feature-transformer-sa
+      containers:
+        - name: feature-transformer
+          image: ${ACR_NAME}/feature-transformer:${IMAGE_TAG}
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          env:
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: feature-transformer-config
+                  key: PORT
+            - name: AZURE_STORAGE_CONTAINER
+              valueFrom:
+                configMapKeyRef:
+                  name: feature-transformer-config
+                  key: AZURE_STORAGE_CONTAINER
+            - name: TFIDF_VECTORIZER_PATH
+              valueFrom:
+                configMapKeyRef:
+                  name: feature-transformer-config
+                  key: TFIDF_VECTORIZER_PATH
+            - name: FEAST_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: feature-transformer-config
+                  key: FEAST_ENABLED
+            - name: FEAST_REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: feature-transformer-config
+                  key: FEAST_REDIS_HOST
+            - name: FEAST_REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: feature-transformer-config
+                  key: FEAST_REDIS_PORT
+            - name: FEAST_REDIS_SSL
+              valueFrom:
+                configMapKeyRef:
+                  name: feature-transformer-config
+                  key: FEAST_REDIS_SSL
+            - name: FEAST_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: azure-redis-secret
+                  key: REDIS_KEY
+                  optional: true
+            - name: AZURE_STORAGE_ACCOUNT_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: azure-storage-secret
+                  key: AZURE_STORAGE_ACCOUNT_NAME
+            - name: AZURE_STORAGE_ACCOUNT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: azure-storage-secret
+                  key: AZURE_STORAGE_ACCOUNT_KEY
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: feature-transformer
+                topologyKey: kubernetes.io/hostname
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: feature-transformer
+  namespace: serving
+  labels:
+    app: feature-transformer
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: feature-transformer
+---
+# ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: feature-transformer-sa
+  namespace: serving
+---
+# HorizontalPodAutoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: feature-transformer-hpa
+  namespace: serving
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: feature-transformer
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+# PodDisruptionBudget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: feature-transformer-pdb
+  namespace: serving
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: feature-transformer
+---
+# Azure Storage Secret (placeholder - update with actual values)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: azure-storage-secret
+  namespace: serving
+  annotations:
+    # This annotation ensures kubectl apply works correctly on existing secrets
+    kubectl.kubernetes.io/last-applied-configuration: ""
+type: Opaque
+stringData:
+  AZURE_STORAGE_ACCOUNT_NAME: "${AZURE_STORAGE_ACCOUNT_NAME}"
+  AZURE_STORAGE_ACCOUNT_KEY: "${AZURE_STORAGE_ACCOUNT_KEY}"

@@ -1,0 +1,12 @@
+# Model Export Dependencies
+mlflow==2.9.2
+xgboost==2.0.3
+onnx==1.15.0
+onnxmltools==1.12.0
+onnxruntime==1.18.0
+skl2onnx==1.16.0
+numpy>=1.24.0,<2.0.0
+pandas>=2.0.0
+azure-storage-blob==12.19.0
+azure-identity==1.15.0
+protobuf>=3.20.0,<5.0.0

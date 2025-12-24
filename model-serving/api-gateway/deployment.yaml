@@ -1,0 +1,299 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-gateway-config
+  namespace: serving
+data:
+  # API Configuration
+  API_VERSION: "1.0.0"
+  ENVIRONMENT: "production"
+  WORKERS: "4"
+  LOG_LEVEL: "INFO"
+  LOG_FORMAT: "json"
+  
+  # MLflow
+  MLFLOW_TRACKING_URI: "http://mlflow-service.mlflow.svc.cluster.local:5000"
+  MODEL_NAME: "spam-detector"
+  
+  # KServe
+  KSERVE_NAMESPACE: "kserve"
+  INFERENCE_SERVICE_NAME: "spam-detector"
+  INFERENCE_SERVICE_STAGING: "spam-detector-staging"
+  INFERENCE_SERVICE_PRODUCTION: "spam-detector"
+  DEFAULT_ENVIRONMENT: "staging"
+  KSERVE_TIMEOUT: "30"
+  
+  # Kubeflow
+  KUBEFLOW_HOST: "http://ml-pipeline.kubeflow.svc.cluster.local:8888"
+  KUBEFLOW_NAMESPACE: "kubeflow"
+  PIPELINE_NAME: "spam-detection-training"
+  
+  # Ray
+  RAY_ADDRESS: "ray://ray-cluster-head-svc.ray.svc.cluster.local:10001"
+  RAY_NAMESPACE: "ray"
+  RAY_DASHBOARD_URL: "http://ray-cluster-head-svc.ray.svc.cluster.local:8265"
+  
+  # Redis
+  REDIS_PORT: "6380"
+  REDIS_SSL: "true"
+  REDIS_DB: "0"
+  
+  # Feature Transformer
+  FEATURE_TRANSFORMER_URL: "http://feature-transformer.serving.svc.cluster.local:80"
+  
+  # Rate Limiting
+  RATE_LIMIT_REQUESTS: "100"
+  RATE_LIMIT_PERIOD: "60"
+  
+  # Timeouts
+  REQUEST_TIMEOUT: "60"
+  
+  # Inference Logging (Azure Blob Storage)
+  INFERENCE_LOG_CONTAINER: "feast"
+  INFERENCE_LOG_PREFIX: "inference-logs"
+  INFERENCE_LOG_BUFFER_SIZE: "100"
+  INFERENCE_LOG_FLUSH_INTERVAL: "60"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: api-gateway-secrets
+  namespace: serving
+type: Opaque
+stringData:
+  # API Keys - In production, use external secret management (Azure Key Vault, etc.)
+  OPERATOR_API_KEYS: "test-operator-key"
+  VIEWER_API_KEYS: "test-viewer-key"
+  
+  # Redis credentials come from azure-redis-secret
+  # REDIS_HOST and REDIS_PASSWORD should be mounted from that secret
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: serving
+  labels:
+    app: api-gateway
+    component: gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+        component: gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: api-gateway
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: api-gateway
+          image: ${ACR_NAME}/api-gateway:${IMAGE_TAG}
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: api-gateway-config
+            - secretRef:
+                name: api-gateway-secrets
+          env:
+            - name: REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: azure-redis-secret
+                  key: REDIS_HOST
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: azure-redis-secret
+                  key: REDIS_KEY
+            # Azure Storage for inference logging
+            - name: AZURE_STORAGE_ACCOUNT_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: azure-storage-secret
+                  key: AZURE_STORAGE_ACCOUNT_NAME
+            - name: AZURE_STORAGE_ACCOUNT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: azure-storage-secret
+                  key: AZURE_STORAGE_ACCOUNT_KEY
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - api-gateway
+                topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: api-gateway
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: serving
+  labels:
+    app: api-gateway
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: api-gateway
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: api-gateway
+  namespace: serving
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: api-gateway
+rules:
+  # KServe InferenceServices
+  - apiGroups: ["serving.kserve.io"]
+    resources: ["inferenceservices"]
+    verbs: ["get", "list", "watch"]
+  # Ray Jobs
+  - apiGroups: ["ray.io"]
+    resources: ["rayjobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  # Pods for status checking
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  # Jobs for batch operations
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: api-gateway
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: api-gateway
+subjects:
+  - kind: ServiceAccount
+    name: api-gateway
+    namespace: serving
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-gateway
+  namespace: serving
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-gateway
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 4
+          periodSeconds: 15
+      selectPolicy: Max
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-gateway
+  namespace: serving
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: api-gateway
