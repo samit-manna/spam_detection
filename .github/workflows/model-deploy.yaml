@@ -178,7 +178,7 @@ jobs:
             SKIP_EXPORT_FLAG="--skip-export"
           fi
           
-          python model_lifecycle.py deploy \
+          python3 model_lifecycle.py deploy \
             --model-name ${{ github.event.inputs.model_name }} \
             --version ${{ needs.verify-staging-model.outputs.version }} \
             --stage Staging \
@@ -403,7 +403,7 @@ jobs:
         run: |
           echo "🚀 Deploying model version ${{ needs.verify-production-model.outputs.version }} to Production..."
           
-          python model_lifecycle.py deploy \
+          python3 model_lifecycle.py deploy \
             --model-name ${{ github.event.inputs.model_name }} \
             --version ${{ needs.verify-production-model.outputs.version }} \
             --stage Production \
