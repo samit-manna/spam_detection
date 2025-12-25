@@ -75,7 +75,8 @@ DEFAULT_BATCH_SIZE = 1000
 NUM_WORKERS = int(os.environ.get("NUM_WORKERS", "4"))
 
 # Classification threshold - must match real-time inference
-SPAM_THRESHOLD = 0.7
+# Configurable via environment variable after model retraining
+SPAM_THRESHOLD = float(os.environ.get("SPAM_THRESHOLD", "0.7"))
 
 # Spam keywords for feature extraction
 SPAM_KEYWORDS = [

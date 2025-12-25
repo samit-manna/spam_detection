@@ -500,11 +500,14 @@ class FeastClient:
     
     def _parse_feast_value(self, data: bytes) -> Dict[str, float]:
         """Parse Feast serialized feature values from Redis."""
+        # Use balanced defaults for unknown senders
+        # Training data: HAM avg spam_ratio=0.038, SPAM avg=0.92, mean=0.327
+        # Using 0.15 (between HAM and mean) balances false positives vs false negatives
         default_features = {
-            "email_count": 0.0,
-            "spam_count": 0.0,
-            "ham_count": 0.0,
-            "spam_ratio": 0.5
+            "email_count": 122.0,      # Training mean
+            "spam_count": 18.0,        # Proportional to 0.15 * 122
+            "ham_count": 104.0,        # Proportional (122 - 18)
+            "spam_ratio": 0.15         # Balanced: between HAM (0.04) and mean (0.33)
         }
         
         if not data:
@@ -521,10 +524,10 @@ class FeastClient:
                 decoded = json.loads(data.decode('utf-8'))
                 if isinstance(decoded, dict):
                     return {
-                        "email_count": float(decoded.get("email_count", 0)),
-                        "spam_count": float(decoded.get("spam_count", 0)),
-                        "ham_count": float(decoded.get("ham_count", 0)),
-                        "spam_ratio": float(decoded.get("spam_ratio", 0.5))
+                        "email_count": float(decoded.get("email_count", 122.0)),
+                        "spam_count": float(decoded.get("spam_count", 18.0)),
+                        "ham_count": float(decoded.get("ham_count", 104.0)),
+                        "spam_ratio": float(decoded.get("spam_ratio", 0.15))
                     }
             except (json.JSONDecodeError, UnicodeDecodeError):
                 pass
@@ -560,11 +563,14 @@ class FeastClient:
     
     async def get_sender_features(self, sender_domain: str) -> Dict[str, float]:
         """Get sender domain features directly from Redis."""
+        # Use balanced defaults for unknown senders
+        # Training data: HAM avg spam_ratio=0.038, SPAM avg=0.92, mean=0.327
+        # Using 0.15 (between HAM and mean) balances false positives vs false negatives
         default_features = {
-            "email_count": 0.0,
-            "spam_count": 0.0,
-            "ham_count": 0.0,
-            "spam_ratio": 0.5  # Neutral default
+            "email_count": 122.0,      # Training mean
+            "spam_count": 18.0,        # Proportional to 0.15 * 122
+            "ham_count": 104.0,        # Proportional (122 - 18)
+            "spam_ratio": 0.15         # Balanced: between HAM (0.04) and mean (0.33)
         }
         
         if not self.enabled or self.redis_client is None:
@@ -590,10 +596,10 @@ class FeastClient:
                 if data:
                     logger.debug(f"Found Feast hash data at key: {key}")
                     return {
-                        "email_count": float(data.get(b"email_count", 0)),
-                        "spam_count": float(data.get(b"spam_count", 0)),
-                        "ham_count": float(data.get(b"ham_count", 0)),
-                        "spam_ratio": float(data.get(b"spam_ratio", 0.5))
+                        "email_count": float(data.get(b"email_count", 122.0)),
+                        "spam_count": float(data.get(b"spam_count", 18.0)),
+                        "ham_count": float(data.get(b"ham_count", 104.0)),
+                        "spam_ratio": float(data.get(b"spam_ratio", 0.15))
                     }
             
             logger.debug(f"No Feast features found for {sender_domain}, using defaults")

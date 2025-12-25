@@ -80,6 +80,111 @@ TEST_EMAILS = [
     }
 ]
 
+# Extended bias test emails - comprehensive test cases for spam/ham detection
+BIAS_TEST_EMAILS = [
+    # Clear SPAM cases
+    {
+        "email_id": "bias_spam_001",
+        "subject": "Winner",
+        "body": "CONGRATULATIONS You won the lottery Claim your million dollars now",
+        "sender": "spam@lottery-winner.com",
+        "sender_domain": "lottery-winner.com",
+        "expected_spam": True,
+        "category": "lottery_scam"
+    },
+    {
+        "email_id": "bias_spam_002",
+        "subject": "URGENT ACTION REQUIRED",
+        "body": "Your bank account has been compromised Click here immediately to verify your identity",
+        "sender": "security@bank-verify.net",
+        "sender_domain": "bank-verify.net",
+        "expected_spam": True,
+        "category": "phishing"
+    },
+    {
+        "email_id": "bias_spam_003",
+        "subject": "Best prices ever",
+        "body": "Buy cheap medications online! Viagra, Cialis at lowest prices! No prescription needed!",
+        "sender": "sales@cheap-pharma.net",
+        "sender_domain": "cheap-pharma.net",
+        "expected_spam": True,
+        "category": "pharmaceutical"
+    },
+    # Clear HAM cases
+    {
+        "email_id": "bias_ham_001",
+        "subject": "Meeting",
+        "body": "Hi can we meet tomorrow at 3pm to discuss the quarterly report",
+        "sender": "colleague@company.com",
+        "sender_domain": "company.com",
+        "expected_spam": False,
+        "category": "work_meeting"
+    },
+    {
+        "email_id": "bias_ham_002",
+        "subject": "Thanks",
+        "body": "Thank you for your help with the presentation yesterday",
+        "sender": "friend@gmail.com",
+        "sender_domain": "gmail.com",
+        "expected_spam": False,
+        "category": "thank_you"
+    },
+    {
+        "email_id": "bias_ham_003",
+        "subject": "Re: Project update",
+        "body": "Sounds good. I will send over the documents by end of day. Let me know if you need anything else from me.",
+        "sender": "john.doe@acme.org",
+        "sender_domain": "acme.org",
+        "expected_spam": False,
+        "category": "project_update"
+    },
+    {
+        "email_id": "bias_ham_004",
+        "subject": "Dinner tonight?",
+        "body": "Hey are you free for dinner tonight? I was thinking we could try that new Italian place downtown. Let me know what time works for you.",
+        "sender": "sarah@personal.me",
+        "sender_domain": "personal.me",
+        "expected_spam": False,
+        "category": "personal_invite"
+    },
+    {
+        "email_id": "bias_ham_005",
+        "subject": "Invoice #12345",
+        "body": "Please find attached the invoice for services rendered in November 2024. Payment is due within 30 days. If you have any questions, please contact our billing department.",
+        "sender": "billing@vendor.com",
+        "sender_domain": "vendor.com",
+        "expected_spam": False,
+        "category": "invoice"
+    },
+    {
+        "email_id": "bias_ham_006",
+        "subject": "Follow-up on our discussion",
+        "body": "Hi Mark, I wanted to follow up on our conversation from last week regarding the budget proposal. I have reviewed the numbers and I think we can move forward with the plan. Would you be available for a call on Thursday to finalize the details? Best regards, James",
+        "sender": "james.smith@company.com",
+        "sender_domain": "company.com",
+        "expected_spam": False,
+        "category": "professional_followup"
+    },
+    {
+        "email_id": "bias_ham_007",
+        "subject": "Deployment complete",
+        "body": "The deployment finished successfully. All tests passed and the system is running smoothly.",
+        "sender": "devops@company.com",
+        "sender_domain": "company.com",
+        "expected_spam": False,
+        "category": "technical_notification"
+    },
+    {
+        "email_id": "bias_ham_008",
+        "subject": "Happy Birthday!",
+        "body": "Happy birthday! Hope you have a wonderful day celebrating with friends and family. Enjoy!",
+        "sender": "friend@outlook.com",
+        "sender_domain": "outlook.com",
+        "expected_spam": False,
+        "category": "personal_greeting"
+    },
+]
+
 
 # =============================================================================
 # Test Functions
@@ -428,6 +533,165 @@ def run_all_tests(
 
 
 # =============================================================================
+# Bias Test Function
+# =============================================================================
+
+def test_bias(api_gateway_url: str, host_header: str = None, api_key: str = None) -> Dict[str, Any]:
+    """
+    Test model for bias by running comprehensive spam/ham test cases.
+    
+    Returns detailed results including:
+    - Per-category accuracy
+    - False positive rate (ham classified as spam)
+    - False negative rate (spam classified as ham)
+    - Overall bias assessment
+    """
+    logger.info("=" * 60)
+    logger.info("Running Bias Test Suite")
+    logger.info("=" * 60)
+    
+    headers = {"Content-Type": "application/json"}
+    if host_header:
+        headers["Host"] = host_header
+    if api_key:
+        headers["X-API-Key"] = api_key
+    
+    results = {
+        "spam_correct": 0,
+        "spam_total": 0,
+        "ham_correct": 0,
+        "ham_total": 0,
+        "false_positives": [],  # Ham classified as spam
+        "false_negatives": [],  # Spam classified as ham
+        "predictions": [],
+        "category_results": {}
+    }
+    
+    for email in BIAS_TEST_EMAILS:
+        try:
+            response = requests.post(
+                f"{api_gateway_url}/predict",
+                headers=headers,
+                json={
+                    "email_id": email["email_id"],
+                    "subject": email["subject"],
+                    "body": email["body"],
+                    "sender": email["sender"],
+                    "sender_domain": email.get("sender_domain", "")
+                },
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                prediction = data.get('prediction', 'ham')
+                probability = data.get('spam_probability', 0)
+                is_spam_prediction = prediction == 'spam'
+                expected_spam = email['expected_spam']
+                correct = is_spam_prediction == expected_spam
+                
+                # Track results
+                result = {
+                    "email_id": email["email_id"],
+                    "category": email["category"],
+                    "expected": "spam" if expected_spam else "ham",
+                    "predicted": prediction,
+                    "probability": probability,
+                    "correct": correct
+                }
+                results["predictions"].append(result)
+                
+                # Update counters
+                if expected_spam:
+                    results["spam_total"] += 1
+                    if correct:
+                        results["spam_correct"] += 1
+                    else:
+                        results["false_negatives"].append(email["email_id"])
+                else:
+                    results["ham_total"] += 1
+                    if correct:
+                        results["ham_correct"] += 1
+                    else:
+                        results["false_positives"].append(email["email_id"])
+                
+                # Track by category
+                category = email["category"]
+                if category not in results["category_results"]:
+                    results["category_results"][category] = {"correct": 0, "total": 0}
+                results["category_results"][category]["total"] += 1
+                if correct:
+                    results["category_results"][category]["correct"] += 1
+                
+                # Log result
+                status = "✓" if correct else "✗"
+                logger.info(f"  {status} {email['email_id']}: {prediction.upper()} ({probability:.1%}) "
+                          f"[expected: {'SPAM' if expected_spam else 'HAM'}] ({category})")
+            else:
+                logger.error(f"  ✗ {email['email_id']}: HTTP {response.status_code}")
+                
+        except Exception as e:
+            logger.error(f"  ✗ {email['email_id']}: Error - {e}")
+    
+    # Calculate metrics
+    total_correct = results["spam_correct"] + results["ham_correct"]
+    total_tests = results["spam_total"] + results["ham_total"]
+    
+    spam_accuracy = results["spam_correct"] / results["spam_total"] if results["spam_total"] > 0 else 0
+    ham_accuracy = results["ham_correct"] / results["ham_total"] if results["ham_total"] > 0 else 0
+    overall_accuracy = total_correct / total_tests if total_tests > 0 else 0
+    
+    false_positive_rate = len(results["false_positives"]) / results["ham_total"] if results["ham_total"] > 0 else 0
+    false_negative_rate = len(results["false_negatives"]) / results["spam_total"] if results["spam_total"] > 0 else 0
+    
+    # Print summary
+    logger.info("\n" + "-" * 60)
+    logger.info("Bias Test Summary")
+    logger.info("-" * 60)
+    logger.info(f"  Overall Accuracy:     {overall_accuracy:.1%} ({total_correct}/{total_tests})")
+    logger.info(f"  SPAM Detection Rate:  {spam_accuracy:.1%} ({results['spam_correct']}/{results['spam_total']})")
+    logger.info(f"  HAM Detection Rate:   {ham_accuracy:.1%} ({results['ham_correct']}/{results['ham_total']})")
+    logger.info(f"  False Positive Rate:  {false_positive_rate:.1%} (ham→spam)")
+    logger.info(f"  False Negative Rate:  {false_negative_rate:.1%} (spam→ham)")
+    
+    if results["false_positives"]:
+        logger.warning(f"  False Positives: {results['false_positives']}")
+    if results["false_negatives"]:
+        logger.warning(f"  False Negatives: {results['false_negatives']}")
+    
+    logger.info("\nCategory Results:")
+    for category, cat_results in results["category_results"].items():
+        cat_accuracy = cat_results["correct"] / cat_results["total"] if cat_results["total"] > 0 else 0
+        logger.info(f"  {category}: {cat_accuracy:.1%} ({cat_results['correct']}/{cat_results['total']})")
+    
+    # Determine if bias test passed
+    # Criteria: 
+    # - Overall accuracy >= 80%
+    # - False positive rate <= 20% (critical - we don't want to block legitimate emails)
+    # - Ham accuracy >= 70% (must correctly identify most legitimate emails)
+    bias_test_passed = (
+        overall_accuracy >= 0.80 and
+        false_positive_rate <= 0.20 and
+        ham_accuracy >= 0.70
+    )
+    
+    results["metrics"] = {
+        "overall_accuracy": overall_accuracy,
+        "spam_accuracy": spam_accuracy,
+        "ham_accuracy": ham_accuracy,
+        "false_positive_rate": false_positive_rate,
+        "false_negative_rate": false_negative_rate,
+        "passed": bias_test_passed
+    }
+    
+    logger.info("-" * 60)
+    logger.info(f"Bias Test: {'✓ PASSED' if bias_test_passed else '✗ FAILED'}")
+    logger.info("-" * 60)
+    
+    return results
+
+
+# =============================================================================
 # CLI Entry Point
 # =============================================================================
 
@@ -608,6 +872,16 @@ if __name__ == "__main__":
             host_header=args.host_header,
             api_key=args.api_key
         )
+        
+        # Run bias test if API gateway is available
+        logger.info("\n")
+        bias_results = test_bias(
+            api_gateway_url=args.api_gateway_url,
+            host_header=args.host_header,
+            api_key=args.api_key
+        )
+        results['bias_test'] = bias_results.get('metrics', {}).get('passed', False)
+        
     else:
         # Otherwise, test transformer and Triton directly
         results = run_all_tests(

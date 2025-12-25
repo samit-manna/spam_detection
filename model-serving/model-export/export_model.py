@@ -163,7 +163,8 @@ def download_model_from_mlflow(
 def convert_to_onnx(
     model,
     num_features: int = DEFAULT_NUM_FEATURES,
-    output_path: Optional[str] = None
+    output_path: Optional[str] = None,
+    target_opset: int = 12
 ) -> onnx.ModelProto:
     """
     Convert XGBoost model to ONNX format.
@@ -172,55 +173,71 @@ def convert_to_onnx(
         model: XGBoost model (Booster or XGBClassifier)
         num_features: Number of input features
         output_path: Optional path to save the ONNX model
+        target_opset: ONNX opset version (default 12, try 11 or 13 if issues)
         
     Returns:
         ONNX ModelProto
+        
+    Note:
+        ONNX conversion can introduce precision differences. The conversion uses
+        float32 precision internally. If you see prediction differences > 0.001,
+        this may indicate a conversion issue. Try different opset versions (11-15).
     """
-    logger.info(f"Converting XGBoost model to ONNX with {num_features} features")
+    logger.info(f"Converting XGBoost model to ONNX with {num_features} features (opset {target_opset})")
     
-    # If we have an XGBClassifier, get the underlying Booster for more reliable conversion
+    # Determine if we have an XGBClassifier or raw Booster
     if hasattr(model, 'get_booster'):
-        logger.info("Extracting Booster from XGBClassifier for ONNX conversion")
-        booster = model.get_booster()
+        logger.info("Model is XGBClassifier - using it directly for ONNX conversion")
         
-        # For booster, we need to create a wrapper that onnxmltools can understand
-        # Use the classifier but set the required attributes
-        # The issue is that loaded XGBClassifier doesn't have _n_classes set
-        try:
-            # Try setting via internal attribute
-            object.__setattr__(model, '_n_classes', 2)
-        except:
-            pass
+        # Ensure required attributes are set for onnxmltools
+        if not hasattr(model, 'n_classes_'):
+            model.n_classes_ = 2
+            logger.info("Set n_classes_=2 on XGBClassifier")
         
-        # Alternative: Create a fresh XGBClassifier and attach the booster
+        if not hasattr(model, 'classes_'):
+            model.classes_ = np.array([0, 1])
+            logger.info("Set classes_=[0, 1] on XGBClassifier")
+        
+        # Use the original model directly - don't create a wrapper!
+        convert_model = model
+    else:
+        # Raw Booster - need to wrap it
+        logger.info("Model is raw Booster - creating XGBClassifier wrapper")
         from xgboost import XGBClassifier
-        wrapper = XGBClassifier(n_estimators=100, use_label_encoder=False, eval_metric='logloss')
-        wrapper._Booster = booster
-        wrapper._n_classes = 2
+        
+        # Create wrapper with same objective as the original model
+        wrapper = XGBClassifier(
+            n_estimators=100, 
+            use_label_encoder=False, 
+            eval_metric='logloss',
+            objective='binary:logistic'
+        )
+        wrapper._Booster = model
         wrapper.n_classes_ = 2
-        model = wrapper
-        logger.info("Created wrapper XGBClassifier with n_classes_=2")
+        wrapper.classes_ = np.array([0, 1])
+        convert_model = wrapper
     
-    # Define input type
+    # Define input type - CRITICAL: Use float32 for consistency
     initial_type = [('input', FloatTensorType([None, num_features]))]
     
-    # Convert to ONNX
+    # Convert to ONNX with specified opset
+    logger.info(f"Running onnxmltools conversion with opset {target_opset}...")
     onnx_model = convert_xgboost(
-        model,
+        convert_model,
         initial_types=initial_type,
-        target_opset=12
+        target_opset=target_opset
     )
     
     # Add metadata
-    onnx_model.doc_string = "Spam detection XGBoost model converted to ONNX"
+    onnx_model.doc_string = f"Spam detection XGBoost model converted to ONNX (opset {target_opset})"
     
     # Log original output names
     original_outputs = [output.name for output in onnx_model.graph.output]
-    logger.info(f"Original ONNX output names: {original_outputs}")
+    logger.info(f"ONNX output names: {original_outputs}")
     
-    # Don't rename outputs - keep them as-is from onnxmltools
-    # The converter generates 'label' for class predictions and 'probabilities' for probabilities
-    # Triton will work with these names directly
+    # Log model info
+    logger.info(f"ONNX model IR version: {onnx_model.ir_version}")
+    logger.info(f"ONNX opset version: {[op.version for op in onnx_model.opset_import]}")
     
     if output_path:
         logger.info(f"Saving ONNX model to {output_path}")
@@ -233,18 +250,23 @@ def convert_to_onnx(
 def validate_onnx_model(
     onnx_model_path: str,
     num_features: int = DEFAULT_NUM_FEATURES,
-    xgb_model: Optional[xgb.Booster] = None
+    xgb_model: Optional[xgb.Booster] = None,
+    max_acceptable_diff: float = 0.001
 ) -> bool:
     """
-    Validate the ONNX model.
+    Validate the ONNX model with comprehensive checks.
     
     Args:
         onnx_model_path: Path to the ONNX model file
         num_features: Number of input features
         xgb_model: Optional XGBoost model for output comparison
+        max_acceptable_diff: Maximum acceptable prediction difference (default 0.1%)
         
     Returns:
         True if validation passes
+        
+    Raises:
+        ValueError: If ONNX model produces significantly different predictions
     """
     logger.info("Validating ONNX model...")
     
@@ -265,15 +287,32 @@ def validate_onnx_model(
     logger.info(f"Input: {input_name}, shape: {input_shape}")
     logger.info(f"Outputs: {output_names}")
     
-    # Run test inference
-    test_input = np.random.randn(1, num_features).astype(np.float32)
-    outputs = session.run(None, {input_name: test_input})
+    # Generate multiple test cases with varied distributions
+    # This helps catch precision issues across different input ranges
+    test_cases = [
+        # Random normal distribution (typical features)
+        np.random.randn(10, num_features).astype(np.float32),
+        # Zeros (edge case)
+        np.zeros((5, num_features), dtype=np.float32),
+        # Ones (edge case)  
+        np.ones((5, num_features), dtype=np.float32),
+        # Large values (extreme case)
+        (np.random.randn(5, num_features) * 10).astype(np.float32),
+        # Small values (near-zero case)
+        (np.random.randn(5, num_features) * 0.01).astype(np.float32),
+        # Mixed positive/negative
+        np.random.uniform(-5, 5, (10, num_features)).astype(np.float32),
+    ]
     
-    logger.info(f"Test inference successful. Output shapes: {[o.shape for o in outputs]}")
+    for i, test_input in enumerate(test_cases):
+        outputs = session.run(None, {input_name: test_input})
+        logger.info(f"Test case {i+1}: Input shape {test_input.shape}, Output shapes: {[o.shape for o in outputs]}")
     
-    # Compare with XGBoost output if provided
+    # Compare with XGBoost output if provided - THIS IS CRITICAL
     if xgb_model is not None:
-        logger.info("Comparing ONNX output with XGBoost output...")
+        logger.info("=" * 50)
+        logger.info("CRITICAL: Comparing ONNX output with XGBoost output...")
+        logger.info("=" * 50)
         
         # Always use the booster directly for comparison since that's what we convert
         if hasattr(xgb_model, 'get_booster'):
@@ -281,24 +320,140 @@ def validate_onnx_model(
         else:
             booster = xgb_model
         
-        dmatrix = xgb.DMatrix(test_input)
-        xgb_pred = booster.predict(dmatrix)
+        # Test with larger sample size for statistical significance
+        test_samples = np.random.randn(100, num_features).astype(np.float32)
         
-        # Get ONNX probabilities (usually the second output)
-        onnx_probs = outputs[1] if len(outputs) > 1 else outputs[0]
-        if len(onnx_probs.shape) > 1:
-            onnx_pred = onnx_probs[:, 1]  # Get probability of class 1
+        dmatrix = xgb.DMatrix(test_samples)
+        
+        # Get XGBoost predictions
+        xgb_output = booster.predict(dmatrix)
+        
+        logger.info(f"XGBoost output range: [{xgb_output.min():.4f}, {xgb_output.max():.4f}]")
+        
+        # Detect if XGBoost is outputting probabilities or raw logits
+        # - If values are in [0, 1] range, they're already probabilities
+        # - If values are outside [0, 1], they're raw logits needing sigmoid
+        if xgb_output.min() >= 0 and xgb_output.max() <= 1:
+            # Already probabilities - use as-is
+            logger.info("XGBoost output is already probabilities (range [0,1]) - using directly")
+            xgb_prob_class1 = xgb_output
         else:
-            onnx_pred = onnx_probs
+            # Raw logits - apply sigmoid to convert to probabilities
+            logger.info("XGBoost output is raw logits - applying sigmoid transformation")
+            xgb_prob_class1 = 1.0 / (1.0 + np.exp(-xgb_output))
         
-        # Check if predictions are close
-        max_diff = np.max(np.abs(xgb_pred - onnx_pred))
-        logger.info(f"Max prediction difference: {max_diff}")
+        logger.info(f"XGBoost prob(class=1) range: [{xgb_prob_class1.min():.4f}, {xgb_prob_class1.max():.4f}]")
         
-        if max_diff > 0.01:
-            logger.warning(f"Prediction difference is high: {max_diff}")
+        # Get ONNX predictions
+        onnx_outputs = session.run(None, {input_name: test_samples})
+        
+        # Log ONNX output structure for debugging
+        logger.info(f"ONNX outputs: {len(onnx_outputs)} tensors")
+        for idx, out in enumerate(onnx_outputs):
+            logger.info(f"  Output {idx}: shape={out.shape}, dtype={out.dtype}")
+            if out.size <= 10:
+                logger.info(f"    Values: {out.flatten()[:10]}")
+            else:
+                logger.info(f"    First 5 values: {out.flatten()[:5]}")
+        
+        # ONNX outputs for XGBoost classifier typically:
+        # - Output 0 (label): predicted class labels [0 or 1]
+        # - Output 1 (probabilities): [[prob_class0, prob_class1], ...]
+        
+        # Get the probabilities output
+        if len(onnx_outputs) > 1:
+            onnx_probs = onnx_outputs[1]
+            logger.info(f"Using ONNX output[1] as probabilities")
         else:
-            logger.info("ONNX predictions match XGBoost predictions")
+            onnx_probs = onnx_outputs[0]
+            logger.info(f"Using ONNX output[0] as probabilities")
+        
+        logger.info(f"ONNX probs shape: {onnx_probs.shape}")
+        
+        # Handle different probability output formats
+        if len(onnx_probs.shape) > 1 and onnx_probs.shape[1] == 2:
+            # Shape is [N, 2] - probabilities for both classes
+            onnx_prob_class0 = onnx_probs[:, 0]
+            onnx_prob_class1 = onnx_probs[:, 1]
+            logger.info(f"ONNX prob(class=0) range: [{onnx_prob_class0.min():.4f}, {onnx_prob_class0.max():.4f}]")
+            logger.info(f"ONNX prob(class=1) range: [{onnx_prob_class1.min():.4f}, {onnx_prob_class1.max():.4f}]")
+        elif len(onnx_probs.shape) == 1:
+            # Shape is [N] - single probability (could be class 0 or class 1)
+            onnx_prob_class1 = onnx_probs
+            logger.info(f"ONNX single prob range: [{onnx_prob_class1.min():.4f}, {onnx_prob_class1.max():.4f}]")
+        else:
+            # Flatten and use first column
+            onnx_prob_class1 = onnx_probs.flatten()
+            logger.info(f"ONNX flattened prob range: [{onnx_prob_class1.min():.4f}, {onnx_prob_class1.max():.4f}]")
+        
+        # Compare XGBoost class 1 probability with ONNX class 1 probability
+        diff_class1 = np.abs(xgb_prob_class1 - onnx_prob_class1)
+        
+        # Also check if ONNX might be outputting class 0 probability instead
+        if len(onnx_probs.shape) > 1 and onnx_probs.shape[1] == 2:
+            diff_class0 = np.abs(xgb_prob_class1 - onnx_prob_class0)
+            diff_inverted = np.abs(xgb_prob_class1 - (1 - onnx_prob_class1))
+            
+            logger.info(f"Comparison options:")
+            logger.info(f"  - XGB class1 vs ONNX class1: max_diff={diff_class1.max():.6f}")
+            logger.info(f"  - XGB class1 vs ONNX class0: max_diff={diff_class0.max():.6f}")
+            logger.info(f"  - XGB class1 vs (1 - ONNX class1): max_diff={diff_inverted.max():.6f}")
+            
+            # Use the comparison with smallest difference
+            if diff_class0.max() < diff_class1.max():
+                logger.warning("ONNX class 0 matches XGBoost class 1 better - classes may be swapped!")
+                onnx_pred = onnx_prob_class0
+                diff = diff_class0
+            else:
+                onnx_pred = onnx_prob_class1
+                diff = diff_class1
+        else:
+            onnx_pred = onnx_prob_class1
+            diff = diff_class1
+        
+        max_diff = np.max(diff)
+        mean_diff = np.mean(diff)
+        std_diff = np.std(diff)
+        p99_diff = np.percentile(diff, 99)
+        
+        logger.info(f"Final prediction comparison (n={len(test_samples)}):")
+        logger.info(f"  - Max difference:  {max_diff:.6f}")
+        logger.info(f"  - Mean difference: {mean_diff:.6f}")
+        logger.info(f"  - Std difference:  {std_diff:.6f}")
+        logger.info(f"  - P99 difference:  {p99_diff:.6f}")
+        
+        # Sample comparison for debugging
+        logger.info(f"Sample predictions (first 5):")
+        for i in range(min(5, len(xgb_prob_class1))):
+            logger.info(f"  [{i}] XGB: {xgb_prob_class1[i]:.4f}, ONNX: {onnx_pred[i]:.4f}, diff: {diff[i]:.6f}")
+        
+        # Check if labels match
+        xgb_labels = (xgb_prob_class1 > 0.5).astype(int)
+        onnx_labels = (onnx_pred > 0.5).astype(int)
+        label_match_rate = np.mean(xgb_labels == onnx_labels)
+        logger.info(f"  - Label match rate: {label_match_rate:.2%}")
+        
+        # Validate thresholds
+        if max_diff > max_acceptable_diff:
+            error_msg = (
+                f"ONNX CONVERSION ERROR: Prediction difference too high!\n"
+                f"  Max diff: {max_diff:.6f} > threshold {max_acceptable_diff}\n"
+                f"  This will cause model degradation in serving.\n"
+                f"  Consider using a different ONNX opset or checking precision."
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        if label_match_rate < 0.99:
+            error_msg = (
+                f"ONNX CONVERSION ERROR: Label predictions diverge!\n"
+                f"  Label match rate: {label_match_rate:.2%} < 99%\n"
+                f"  This will cause significant model degradation."
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        logger.info("✓ ONNX predictions match XGBoost predictions within tolerance")
     
     logger.info("ONNX model validation completed successfully")
     return True

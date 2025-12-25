@@ -3,6 +3,7 @@ Real-time prediction endpoints.
 """
 
 import logging
+import os
 import time
 import uuid
 from datetime import datetime, timezone
@@ -35,8 +36,9 @@ def get_confidence_level(probability: float) -> ConfidenceLevel:
     return ConfidenceLevel.LOW
 
 
-# Classification threshold - adjusted higher due to model bias on Enron dataset
-SPAM_THRESHOLD = 0.7
+# Classification threshold - configurable via environment variable
+# Update after model retraining or use model-deploy to set optimal threshold
+SPAM_THRESHOLD = float(os.environ.get("SPAM_THRESHOLD", "0.7"))
 
 
 def get_prediction_label(spam_probability: float) -> PredictionLabel:

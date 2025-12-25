@@ -41,6 +41,9 @@ data:
   # Feature Transformer
   FEATURE_TRANSFORMER_URL: "http://feature-transformer.serving.svc.cluster.local:80"
   
+  # Model Threshold (configurable - update via model-deploy after retraining)
+  SPAM_THRESHOLD: "0.6"
+  
   # Rate Limiting
   RATE_LIMIT_REQUESTS: "100"
   RATE_LIMIT_PERIOD: "60"
