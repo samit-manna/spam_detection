@@ -210,23 +210,5 @@ spec:
   selector:
     matchLabels:
       serving.kserve.io/inferenceservice: spam-detector
----
-# ServiceMonitor for Prometheus (if using Prometheus Operator)
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: spam-detector-monitor
-  namespace: kserve
-  labels:
-    app: spam-detector
-spec:
-  selector:
-    matchLabels:
-      serving.kserve.io/inferenceservice: spam-detector
-  endpoints:
-    - port: http
-      interval: 30s
-      path: /metrics
-  namespaceSelector:
-    matchNames:
-      - kserve
+# Note: ServiceMonitor resource removed - requires Prometheus Operator CRDs
+# If you install Prometheus Operator, you can add a ServiceMonitor separately

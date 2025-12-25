@@ -302,12 +302,55 @@ jobs:
           fi
 
   # ===========================================================================
-  # Step 5: Deploy to Production (Optional)
+  # Step 5: Promote Model to Production Stage in MLflow
+  # ===========================================================================
+  promote-to-production:
+    name: Promote to Production Stage
+    runs-on: ml-platform-runners
+    needs: [verify-staging-model, smoke-tests]
+    if: ${{ needs.smoke-tests.outputs.test_passed == 'true' }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install requests
+
+      - name: Promote Model to Production in MLflow
+        env:
+          MLFLOW_TRACKING_URI: http://mlflow-service.${{ env.MLFLOW_NAMESPACE }}.svc.cluster.local:5000
+        run: |
+          echo "📤 Promoting model v${{ needs.verify-staging-model.outputs.model_version }} to Production stage..."
+          
+          python model-serving/scripts/model_lifecycle.py promote \
+            --model-name "${{ github.event.inputs.model_name }}" \
+            --version "${{ needs.verify-staging-model.outputs.model_version }}" \
+            --stage Production \
+            --mlflow-uri "$MLFLOW_TRACKING_URI" \
+            -y
+          
+          echo "✅ Model promoted to Production stage in MLflow"
+
+      - name: Summary
+        run: |
+          echo "## 📤 Model Promotion" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Model v${{ needs.verify-staging-model.outputs.model_version }} promoted to Production stage in MLflow" >> $GITHUB_STEP_SUMMARY
+
+  # ===========================================================================
+  # Step 6: Deploy to Production (Optional)
   # ===========================================================================
   verify-production-model:
     name: Verify Production Model
     runs-on: ml-platform-runners
-    needs: smoke-tests
+    needs: [smoke-tests, promote-to-production]
     if: ${{ github.event.inputs.deploy_to_production == 'true' }}
     
     outputs:
@@ -360,7 +403,7 @@ jobs:
   deploy-production:
     name: Deploy to Production
     runs-on: ml-platform-runners
-    needs: [verify-staging-model, smoke-tests, verify-production-model]
+    needs: [verify-staging-model, smoke-tests, verify-production-model, promote-to-production]
     if: ${{ github.event.inputs.deploy_to_production == 'true' }}
     environment: production
     
@@ -382,33 +425,6 @@ jobs:
           curl -LO "https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
-
-      - name: Promote Model to Production in MLflow
-        env:
-          MLFLOW_TRACKING_URI: http://mlflow-service.${{ env.MLFLOW_NAMESPACE }}.svc.cluster.local:5000
-        run: |
-          echo "📤 Promoting model v${{ needs.verify-staging-model.outputs.model_version }} to Production..."
-          
-          python model-serving/scripts/model_lifecycle.py promote \
-            --model-name "${{ github.event.inputs.model_name }}" \
-            --version "${{ needs.verify-staging-model.outputs.model_version }}" \
-            --stage Production \
-            --mlflow-uri "$MLFLOW_TRACKING_URI" \
-            -y
-
-      - name: Export Model for Production
-        env:
-          ACR_NAME: ${{ needs.verify-staging-model.outputs.acr_name }}
-        run: |
-          echo "📦 Exporting model for production..."
-          
-          python model-serving/scripts/model_lifecycle.py export \
-            --model-name "${{ github.event.inputs.model_name }}" \
-            --stage Production \
-            --acr-name "$ACR_NAME" \
-            --image-tag "${{ env.IMAGE_TAG }}" \
-            --namespace "${{ env.KSERVE_NAMESPACE }}" \
-            --timeout 300
 
       - name: Deploy to Production KServe
         run: |
@@ -448,7 +464,7 @@ jobs:
   summary:
     name: Deployment Summary
     runs-on: ml-platform-runners
-    needs: [verify-staging-model, export-model, deploy-staging, smoke-tests]
+    needs: [verify-staging-model, export-model, deploy-staging, smoke-tests, promote-to-production, verify-production-model, deploy-production]
     if: always()
     
     steps:
@@ -468,3 +484,4 @@ jobs:
           echo "| Export Model | ${{ needs.export-model.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Deploy Staging | ${{ needs.deploy-staging.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Smoke Tests | ${{ needs.smoke-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Promote to Production | ${{ needs.promote-to-production.result }} |" >> $GITHUB_STEP_SUMMARY
