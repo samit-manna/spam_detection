@@ -85,6 +85,10 @@ jobs:
           timeout 60 sh -c 'until docker info > /dev/null 2>&1; do sleep 2; done'
           docker info
 
+      - name: Install Azure CLI
+        run: |
+          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
       - name: Login to ACR via Azure CLI
         run: |
           # Use managed identity from AKS node
