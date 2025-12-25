@@ -91,8 +91,8 @@ jobs:
 
       - name: Login to ACR via Azure CLI
         run: |
-          # Use managed identity from AKS node
-          az login --identity --allow-no-subscriptions
+          # Use managed identity from AKS node - specify kubelet identity client ID
+          az login --identity --username 9ae25c5e-14d8-4384-9c87-a57fecb27335
           az acr login --name $(echo ${{ env.ACR_NAME }} | cut -d'.' -f1)
 
       - name: Build API Gateway
