@@ -68,16 +68,15 @@ jobs:
       - name: Set image tag
         id: set-tag
         run: |
-          # if [ -n "${{ github.event.inputs.image_tag }}" ]; then
-          #   TAG="${{ github.event.inputs.image_tag }}"
-          # else
-          #   # Generate tag from git SHA and timestamp
-          #   SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
-          #   TIMESTAMP=$(date +%Y%m%d%H%M%S)
-          #   TAG="v${TIMESTAMP}-${SHORT_SHA}"
-          # fi
-          # echo "tag=${TAG}" >> $GITHUB_OUTPUT
-          echo "tag=v20251225133814-fc5a847" >> $GITHUB_OUTPUT
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
+            TAG="${{ github.event.inputs.image_tag }}"
+          else
+            # Generate tag from git SHA and timestamp
+            SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+            TIMESTAMP=$(date +%Y%m%d%H%M%S)
+            TAG="v${TIMESTAMP}-${SHORT_SHA}"
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "Image tag: ${TAG}"
 
       - name: Wait for Docker daemon
