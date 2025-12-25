@@ -180,7 +180,6 @@ jobs:
           
           python3 model_lifecycle.py deploy \
             --model-name ${{ github.event.inputs.model_name }} \
-            --version ${{ needs.verify-staging-model.outputs.version }} \
             --stage Staging \
             --mlflow-uri ${{ env.MLFLOW_TRACKING_URI }} \
             ${SKIP_EXPORT_FLAG}
@@ -405,7 +404,6 @@ jobs:
           
           python3 model_lifecycle.py deploy \
             --model-name ${{ github.event.inputs.model_name }} \
-            --version ${{ needs.verify-production-model.outputs.version }} \
             --stage Production \
             --mlflow-uri ${{ env.MLFLOW_TRACKING_URI }} \
             --skip-export  # Reuse ONNX from staging

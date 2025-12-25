@@ -159,3 +159,13 @@ output "log_analytics_workspace_id" {
   description = "ID of the Log Analytics workspace"
   value       = azurerm_log_analytics_workspace.main.id
 }
+
+output "kubelet_identity_client_id" {
+  description = "Client ID of the AKS kubelet identity"
+  value       = azurerm_kubernetes_cluster.main.kubelet_identity[0].client_id
+}
+
+output "kubelet_identity_object_id" {
+  description = "Object ID of the AKS kubelet identity"
+  value       = azurerm_kubernetes_cluster.main.kubelet_identity[0].object_id
+}

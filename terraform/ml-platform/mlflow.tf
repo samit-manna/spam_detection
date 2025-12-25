@@ -153,8 +153,8 @@ resource "kubernetes_deployment" "mlflow" {
 
           resources {
             requests = {
-              cpu    = "500m"
-              memory = "1Gi"
+              cpu    = "1"
+              memory = "2Gi"
             }
             limits = {
               cpu    = "2"
@@ -167,8 +167,10 @@ resource "kubernetes_deployment" "mlflow" {
               path = "/health"
               port = 5000
             }
-            initial_delay_seconds = 60
-            period_seconds        = 10
+            initial_delay_seconds = 120
+            period_seconds        = 30
+            timeout_seconds       = 10
+            failure_threshold     = 5
           }
 
           readiness_probe {
@@ -176,8 +178,10 @@ resource "kubernetes_deployment" "mlflow" {
               path = "/health"
               port = 5000
             }
-            initial_delay_seconds = 45
-            period_seconds        = 5
+            initial_delay_seconds = 90
+            period_seconds        = 10
+            timeout_seconds       = 10
+            failure_threshold     = 5
           }
         }
       }

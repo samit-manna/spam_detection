@@ -157,6 +157,13 @@ resource "azurerm_role_assignment" "aks_acr" {
   scope                            = azurerm_container_registry.main.id
 }
 
+# Role assignment for AKS kubelet to push to ACR (for CI/CD runners)
+resource "azurerm_role_assignment" "aks_acr_push" {
+  principal_id                     = azurerm_kubernetes_cluster.main.kubelet_identity[0].object_id
+  role_definition_name             = "AcrPush"
+  scope                            = azurerm_container_registry.main.id
+}
+
 resource "azurerm_role_assignment" "aks_identity_acr" {
   principal_id                     = azurerm_kubernetes_cluster.main.identity[0].principal_id
   role_definition_name             = "AcrPull"

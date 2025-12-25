@@ -37,3 +37,13 @@ tags = {
   Component   = "ML-Platform"
   Environment = "dev"
 }
+
+# GitHub Actions Runner Configuration
+# Set github_runners_enabled = true and provide your GitHub PAT to enable
+github_runners_enabled   = false
+github_runners_namespace = "github-runners"
+github_org               = ""  # Your GitHub username or org (e.g., "myusername")
+github_repo              = "spam_detection"
+github_pat               = ""  # GitHub PAT with repo and workflow scopes
+runner_min_count         = 0   # Scale to zero when idle
+runner_max_count         = 3   # Max concurrent runners

@@ -18,6 +18,9 @@ from components.feature_retrieval import feature_retrieval
 from components.baseline_training import baseline_training
 from components.hpo_tuning import hpo_tuning
 from components.model_evaluation import model_evaluation
+from components.model_validation import model_validation
+from components.model_comparison import model_comparison
+from components.model_promotion import model_promotion
 
 
 @pipeline(
@@ -55,6 +58,16 @@ def spam_detection_pipeline(
     # Registration parameters
     model_name: str = "spam-detector",
     f1_threshold: float = 0.85,
+    
+    # Validation thresholds
+    min_auc_roc: float = 0.90,
+    min_precision: float = 0.80,
+    min_recall: float = 0.80,
+    max_inference_time_ms: float = 10.0,
+    
+    # Comparison thresholds (relative to current staging)
+    max_f1_regression: float = 0.05,  # New model can be at most 5% worse
+    max_auc_regression: float = 0.05,
 ):
     """
     Spam Detection Training Pipeline.
@@ -64,8 +77,10 @@ def spam_detection_pipeline(
     2. Retrieves features from Feast (524 features across 5 feature views)
     3. Trains a baseline model to validate the pipeline
     4. Runs HPO with Ray Tune to find optimal XGBoost hyperparameters
-    5. Evaluates the best model on holdout test set
-    6. Registers the model to MLflow if it meets the F1 threshold
+    5. Evaluates the best model on holdout test set (metrics + visualizations)
+    6. Validates the model against quality thresholds
+    7. Compares the model against current staging model
+    8. Promotes the model to Staging if all checks pass
     
     Args:
         acr_name: Azure Container Registry name (used for setting component images)
@@ -84,7 +99,13 @@ def spam_detection_pipeline(
         num_hpo_trials: Number of HPO trials
         max_concurrent_trials: Max concurrent HPO trials
         model_name: Name for model registry
-        f1_threshold: Minimum F1 score to register model
+        f1_threshold: Minimum F1 score for validation
+        min_auc_roc: Minimum AUC-ROC for validation
+        min_precision: Minimum precision for validation
+        min_recall: Minimum recall for validation
+        max_inference_time_ms: Maximum inference latency
+        max_f1_regression: Max allowed F1 regression vs staging
+        max_auc_regression: Max allowed AUC regression vs staging
     """
     
     # Step 1: Data Preparation
@@ -174,8 +195,8 @@ def spam_detection_pipeline(
         secret_key_to_env={'AZURE_STORAGE_CONNECTION_STRING': 'AZURE_STORAGE_CONNECTION_STRING'}
     )
     
-    # Step 5: Model Evaluation & Registration
-    # Evaluates on test set and registers to MLflow if threshold met
+    # Step 5: Model Evaluation
+    # Evaluates on test set and logs metrics + visualizations to MLflow
     eval_task = model_evaluation(
         acr_name=acr_name,
         image_tag=image_tag,
@@ -188,12 +209,88 @@ def spam_detection_pipeline(
         model_name=model_name,
         f1_threshold=f1_threshold,
     )
-    eval_task.set_display_name("5. Model Evaluation & Registration")
+    eval_task.set_display_name("5. Model Evaluation")
     eval_task.after(hpo_task)
     
     # Add Azure Storage secret as environment variable
     kubernetes.use_secret_as_env(
         task=eval_task,
+        secret_name='azure-storage-secret',
+        secret_key_to_env={'AZURE_STORAGE_CONNECTION_STRING': 'AZURE_STORAGE_CONNECTION_STRING'}
+    )
+    
+    # Step 6: Model Validation
+    # Validates model against quality thresholds
+    validation_task = model_validation(
+        acr_name=acr_name,
+        image_tag=image_tag,
+        best_model_path=hpo_task.outputs["best_model_path"],
+        test_features_path=retrieval_task.outputs["test_features_path"],
+        storage_account=storage_account,
+        container_name=model_container_name,
+        min_f1_score=f1_threshold,
+        min_auc_roc=min_auc_roc,
+        min_precision=min_precision,
+        min_recall=min_recall,
+        max_inference_time_ms=max_inference_time_ms,
+    )
+    validation_task.set_display_name("6. Model Validation")
+    validation_task.after(eval_task)
+    
+    # Add Azure Storage secret as environment variable
+    kubernetes.use_secret_as_env(
+        task=validation_task,
+        secret_name='azure-storage-secret',
+        secret_key_to_env={'AZURE_STORAGE_CONNECTION_STRING': 'AZURE_STORAGE_CONNECTION_STRING'}
+    )
+    
+    # Step 6: Model Comparison
+    # Compares new model against current staging model
+    comparison_task = model_comparison(
+        acr_name=acr_name,
+        image_tag=image_tag,
+        new_model_path=hpo_task.outputs["best_model_path"],
+        test_features_path=retrieval_task.outputs["test_features_path"],
+        storage_account=storage_account,
+        container_name=model_container_name,
+        mlflow_tracking_uri=mlflow_tracking_uri,
+        model_name=model_name,
+        max_f1_regression=max_f1_regression,
+        max_auc_regression=max_auc_regression,
+    )
+    comparison_task.set_display_name("7. Model Comparison")
+    comparison_task.after(validation_task)
+    
+    # Add Azure Storage secret as environment variable
+    kubernetes.use_secret_as_env(
+        task=comparison_task,
+        secret_name='azure-storage-secret',
+        secret_key_to_env={'AZURE_STORAGE_CONNECTION_STRING': 'AZURE_STORAGE_CONNECTION_STRING'}
+    )
+    
+    # Step 7: Model Promotion
+    # Promotes model to Staging if validation and comparison pass
+    promotion_task = model_promotion(
+        acr_name=acr_name,
+        image_tag=image_tag,
+        best_model_path=hpo_task.outputs["best_model_path"],
+        test_features_path=retrieval_task.outputs["test_features_path"],
+        storage_account=storage_account,
+        container_name=model_container_name,
+        mlflow_tracking_uri=mlflow_tracking_uri,
+        mlflow_experiment_name=mlflow_experiment_name,
+        model_name=model_name,
+        validation_passed=validation_task.outputs["validation_passed"],
+        comparison_passed=comparison_task.outputs["comparison_passed"],
+        validation_report=validation_task.outputs["validation_report"],
+        comparison_report=comparison_task.outputs["comparison_report"],
+    )
+    promotion_task.set_display_name("8. Model Promotion")
+    promotion_task.after(comparison_task)
+    
+    # Add Azure Storage secret as environment variable
+    kubernetes.use_secret_as_env(
+        task=promotion_task,
         secret_name='azure-storage-secret',
         secret_key_to_env={'AZURE_STORAGE_CONNECTION_STRING': 'AZURE_STORAGE_CONNECTION_STRING'}
     )
@@ -236,9 +333,8 @@ if __name__ == "__main__":
         yaml_content = f.read()
     
     # Replace placeholder images with actual images
-    # exec-data-preparation and exec-feature-retrieval use ml-data-prep image
-    # exec-baseline-training and exec-model-evaluation use ml-mlflow-ops image
-    # exec-hpo-tuning uses ml-data-prep image
+    # exec-data-preparation, exec-feature-retrieval, exec-hpo-tuning use ml-data-prep image
+    # exec-baseline-training, exec-model-evaluation, exec-model-validation, exec-model-comparison, exec-model-promotion use ml-mlflow-ops image
     
     # Split into sections and replace appropriately
     yaml_content = re.sub(
@@ -267,6 +363,24 @@ if __name__ == "__main__":
     )
     yaml_content = re.sub(
         r'(exec-model-evaluation:.*?image:\s*)placeholder',
+        rf'\g<1>{mlflow_ops_image}',
+        yaml_content,
+        flags=re.DOTALL
+    )
+    yaml_content = re.sub(
+        r'(exec-model-validation:.*?image:\s*)placeholder',
+        rf'\g<1>{mlflow_ops_image}',
+        yaml_content,
+        flags=re.DOTALL
+    )
+    yaml_content = re.sub(
+        r'(exec-model-comparison:.*?image:\s*)placeholder',
+        rf'\g<1>{mlflow_ops_image}',
+        yaml_content,
+        flags=re.DOTALL
+    )
+    yaml_content = re.sub(
+        r'(exec-model-promotion:.*?image:\s*)placeholder',
         rf'\g<1>{mlflow_ops_image}',
         yaml_content,
         flags=re.DOTALL
@@ -303,6 +417,15 @@ if __name__ == "__main__":
     print(f"\n✓ Pipeline compiled to spam_detection_pipeline.yaml")
     print(f"  Images:")
     print(f"    - data-prep, feature-retrieval, hpo-tuning: {data_prep_image}")
-    print(f"    - baseline-training, model-evaluation: {mlflow_ops_image}")
+    print(f"    - baseline-training, evaluation, validation, comparison, promotion: {mlflow_ops_image}")
     if storage_account:
         print(f"  Default Storage Account: {storage_account}")
+    print(f"\n  Pipeline Steps:")
+    print(f"    1. Data Preparation")
+    print(f"    2. Feature Retrieval (Feast)")
+    print(f"    3. Baseline Training")
+    print(f"    4. HPO (Ray Tune)")
+    print(f"    5. Model Evaluation (metrics + visualizations)")
+    print(f"    6. Model Validation (quality gates)")
+    print(f"    7. Model Comparison (vs staging)")
+    print(f"    8. Model Promotion (to Staging)")

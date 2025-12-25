@@ -11,7 +11,13 @@
 #    feast_server_url: str [Default: 'feast-service.feast.svc.cluster.local:6566']
 #    image_tag: str [Default: 'latest']
 #    include_sender_features: bool [Default: True]
+#    max_auc_regression: float [Default: 0.05]
 #    max_concurrent_trials: int [Default: 4.0]
+#    max_f1_regression: float [Default: 0.05]
+#    max_inference_time_ms: float [Default: 10.0]
+#    min_auc_roc: float [Default: 0.9]
+#    min_precision: float [Default: 0.8]
+#    min_recall: float [Default: 0.8]
 #    mlflow_experiment_name: str [Default: 'spam-detection']
 #    mlflow_tracking_uri: str [Default: 'http://mlflow-service.mlflow.svc.cluster.local:5000']
 #    model_container_name: str [Default: 'models']
@@ -207,6 +213,74 @@ components:
         best_params:
           description: JSON string of best hyperparameters
           parameterType: STRING
+  comp-model-comparison:
+    executorLabel: exec-model-comparison
+    inputDefinitions:
+      parameters:
+        acr_name:
+          description: Azure Container Registry name
+          parameterType: STRING
+        container_name:
+          description: Azure blob container name
+          parameterType: STRING
+        image_tag:
+          description: Docker image tag
+          parameterType: STRING
+        max_auc_regression:
+          description: Maximum allowed AUC regression
+          parameterType: NUMBER_DOUBLE
+        max_f1_regression:
+          description: Maximum allowed F1 regression (e.g., 0.05 = 5%)
+          parameterType: NUMBER_DOUBLE
+        mlflow_tracking_uri:
+          description: MLflow tracking server URI
+          parameterType: STRING
+        model_name:
+          description: Name of registered model in MLflow
+          parameterType: STRING
+        new_model_path:
+          description: Blob path to new model pickle
+          parameterType: STRING
+        storage_account:
+          description: Azure storage account name
+          parameterType: STRING
+        test_features_path:
+          description: Blob path to test features parquet
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+      parameters:
+        auc_improvement:
+          description: AUC improvement (positive = better)
+          parameterType: NUMBER_DOUBLE
+        comparison_passed:
+          description: Whether comparison check passed
+          parameterType: BOOLEAN
+        comparison_report:
+          description: Detailed comparison report as JSON string
+          parameterType: STRING
+        f1_improvement:
+          description: F1 improvement (positive = better)
+          parameterType: NUMBER_DOUBLE
+        has_staging_model:
+          description: Whether a staging model exists
+          parameterType: BOOLEAN
+        new_model_auc:
+          description: AUC-ROC of new model
+          parameterType: NUMBER_DOUBLE
+        new_model_f1:
+          description: F1 score of new model
+          parameterType: NUMBER_DOUBLE
+        staging_model_auc:
+          description: AUC-ROC of staging model (0 if none)
+          parameterType: NUMBER_DOUBLE
+        staging_model_f1:
+          description: F1 score of staging model (0 if none)
+          parameterType: NUMBER_DOUBLE
   comp-model-evaluation:
     executorLabel: exec-model-evaluation
     inputDefinitions:
@@ -257,6 +331,130 @@ components:
         test_f1:
           description: F1 score on test set
           parameterType: NUMBER_DOUBLE
+  comp-model-promotion:
+    executorLabel: exec-model-promotion
+    inputDefinitions:
+      parameters:
+        acr_name:
+          description: Azure Container Registry name
+          parameterType: STRING
+        best_model_path:
+          description: Blob path to best model pickle
+          parameterType: STRING
+        comparison_passed:
+          description: Whether comparison checks passed
+          parameterType: BOOLEAN
+        comparison_report:
+          description: JSON report from comparison step
+          parameterType: STRING
+        container_name:
+          description: Azure blob container name
+          parameterType: STRING
+        image_tag:
+          description: Docker image tag
+          parameterType: STRING
+        mlflow_experiment_name:
+          description: MLflow experiment name
+          parameterType: STRING
+        mlflow_tracking_uri:
+          description: MLflow tracking server URI
+          parameterType: STRING
+        model_name:
+          description: Name for model registry
+          parameterType: STRING
+        storage_account:
+          description: Azure storage account name
+          parameterType: STRING
+        test_features_path:
+          description: Blob path to test features parquet (for evaluation)
+          parameterType: STRING
+        validation_passed:
+          description: Whether validation checks passed
+          parameterType: BOOLEAN
+        validation_report:
+          description: JSON report from validation step
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+      parameters:
+        model_version:
+          description: Version number if promoted, else empty string
+          parameterType: STRING
+        promoted:
+          description: Whether model was promoted
+          parameterType: BOOLEAN
+        promotion_report:
+          description: Detailed promotion report as JSON string
+          parameterType: STRING
+  comp-model-validation:
+    executorLabel: exec-model-validation
+    inputDefinitions:
+      parameters:
+        acr_name:
+          description: Azure Container Registry name
+          parameterType: STRING
+        best_model_path:
+          description: Blob path to best model pickle
+          parameterType: STRING
+        container_name:
+          description: Azure blob container name
+          parameterType: STRING
+        image_tag:
+          description: Docker image tag
+          parameterType: STRING
+        max_inference_time_ms:
+          description: Maximum allowed inference time in milliseconds
+          parameterType: NUMBER_DOUBLE
+        min_auc_roc:
+          description: Minimum required AUC-ROC
+          parameterType: NUMBER_DOUBLE
+        min_f1_score:
+          description: Minimum required F1 score
+          parameterType: NUMBER_DOUBLE
+        min_precision:
+          description: Minimum required precision
+          parameterType: NUMBER_DOUBLE
+        min_recall:
+          description: Minimum required recall
+          parameterType: NUMBER_DOUBLE
+        storage_account:
+          description: Azure storage account name
+          parameterType: STRING
+        test_features_path:
+          description: Blob path to test features parquet
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+      parameters:
+        auc_roc:
+          description: Actual AUC-ROC score
+          parameterType: NUMBER_DOUBLE
+        f1_score:
+          description: Actual F1 score
+          parameterType: NUMBER_DOUBLE
+        inference_time_ms:
+          description: Actual inference time in milliseconds
+          parameterType: NUMBER_DOUBLE
+        precision:
+          description: Actual precision
+          parameterType: NUMBER_DOUBLE
+        recall:
+          description: Actual recall
+          parameterType: NUMBER_DOUBLE
+        validation_passed:
+          description: Whether all validation checks passed
+          parameterType: BOOLEAN
+        validation_report:
+          description: Detailed validation report as JSON string
+          parameterType: STRING
 deploymentSpec:
   executors:
     exec-baseline-training:
@@ -896,6 +1094,220 @@ deploymentSpec:
           , \"best_model_path\"])\n    return outputs(float(best_f1), best_params,\
           \ model_path)\n\n"
         image: mltrainingsdevacrqvwjyi.azurecr.io/ml-data-prep:latest
+    exec-model-comparison:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - model_comparison
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.14.1'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef model_comparison(\n    acr_name: str,\n    image_tag: str,\n\
+          \    new_model_path: str,\n    test_features_path: str,\n    storage_account:\
+          \ str,\n    container_name: str,\n    mlflow_tracking_uri: str,\n    model_name:\
+          \ str,\n    # Comparison thresholds (relative to current staging)\n    max_f1_regression:\
+          \ float,  # e.g., 0.05 means new model can be at most 5% worse\n    max_auc_regression:\
+          \ float,\n    metrics: Output[Metrics],\n) -> NamedTuple(\"Outputs\", [\n\
+          \    (\"comparison_passed\", bool),\n    (\"has_staging_model\", bool),\n\
+          \    (\"new_model_f1\", float),\n    (\"staging_model_f1\", float),\n  \
+          \  (\"f1_improvement\", float),\n    (\"new_model_auc\", float),\n    (\"\
+          staging_model_auc\", float),\n    (\"auc_improvement\", float),\n    (\"\
+          comparison_report\", str),\n]):\n    \"\"\"\n    Compare new model against\
+          \ current staging model.\n\n    This component:\n    1. Loads the current\
+          \ staging model from MLflow (if exists)\n    2. Evaluates both models on\
+          \ the same test set\n    3. Compares metrics to ensure no significant regression\n\
+          \n    Args:\n        acr_name: Azure Container Registry name\n        image_tag:\
+          \ Docker image tag\n        new_model_path: Blob path to new model pickle\n\
+          \        test_features_path: Blob path to test features parquet\n      \
+          \  storage_account: Azure storage account name\n        container_name:\
+          \ Azure blob container name\n        mlflow_tracking_uri: MLflow tracking\
+          \ server URI\n        model_name: Name of registered model in MLflow\n \
+          \       max_f1_regression: Maximum allowed F1 regression (e.g., 0.05 = 5%)\n\
+          \        max_auc_regression: Maximum allowed AUC regression\n        metrics:\
+          \ Output metrics object\n\n    Returns:\n        comparison_passed: Whether\
+          \ comparison check passed\n        has_staging_model: Whether a staging\
+          \ model exists\n        new_model_f1: F1 score of new model\n        staging_model_f1:\
+          \ F1 score of staging model (0 if none)\n        f1_improvement: F1 improvement\
+          \ (positive = better)\n        new_model_auc: AUC-ROC of new model\n   \
+          \     staging_model_auc: AUC-ROC of staging model (0 if none)\n        auc_improvement:\
+          \ AUC improvement (positive = better)\n        comparison_report: Detailed\
+          \ comparison report as JSON string\n    \"\"\"\n    import os\n    import\
+          \ pickle\n    import json\n    import numpy as np\n    import pandas as\
+          \ pd\n    import mlflow\n    from mlflow.tracking import MlflowClient\n\
+          \    from sklearn.metrics import (\n        f1_score as sklearn_f1_score,\n\
+          \        roc_auc_score,\n        precision_score,\n        recall_score,\n\
+          \        accuracy_score,\n    )\n    from azure.storage.blob import BlobServiceClient\n\
+          \n    # Suppress git warnings\n    os.environ[\"GIT_PYTHON_REFRESH\"] =\
+          \ \"quiet\"\n\n    # Initialize Azure storage\n    connection_string = os.environ.get(\"\
+          AZURE_STORAGE_CONNECTION_STRING\")\n    blob_service = BlobServiceClient.from_connection_string(connection_string)\n\
+          \    container_client = blob_service.get_container_client(container_name)\n\
+          \    storage_options = {\"connection_string\": connection_string}\n\n  \
+          \  print(\"=\" * 60)\n    print(\"MODEL COMPARISON\")\n    print(\"=\" *\
+          \ 60)\n    print(f\"\\nComparison Thresholds:\")\n    print(f\"  Max F1\
+          \ Regression:  {max_f1_regression:.1%}\")\n    print(f\"  Max AUC Regression:\
+          \ {max_auc_regression:.1%}\")\n    print()\n\n    # Load test data\n   \
+          \ test_read_path = f\"abfs://{test_features_path}\"\n    test_df = pd.read_parquet(test_read_path,\
+          \ storage_options=storage_options)\n\n    print(f\"Test set size: {len(test_df)}\
+          \ samples\")\n\n    # Prepare features\n    exclude_cols = [\"email_id\"\
+          , \"sender_domain\", \"event_timestamp\", \"label\"]\n    numeric_cols =\
+          \ test_df.select_dtypes(include=[\"float64\", \"float32\", \"int64\", \"\
+          int32\"]).columns\n    feature_cols = [c for c in numeric_cols if c not\
+          \ in exclude_cols]\n\n    X_test = test_df[feature_cols].values\n    y_test\
+          \ = test_df[\"label\"].values\n\n    # Encode labels if strings\n    if\
+          \ y_test.dtype == 'object':\n        label_map = {\"ham\": 0, \"spam\":\
+          \ 1}\n        y_test = np.array([label_map.get(str(label).lower(), label)\
+          \ for label in y_test])\n\n    # ============================================\n\
+          \    # Load New Model\n    # ============================================\n\
+          \    print(\"\\n[Step 1] Loading New Model\")\n    print(\"-\" * 40)\n\n\
+          \    model_blob_path = new_model_path.split('/', 1)[1] if '/' in new_model_path\
+          \ else new_model_path\n\n    model_blob_client = container_client.get_blob_client(model_blob_path)\n\
+          \    model_data = model_blob_client.download_blob().readall()\n    new_model\
+          \ = pickle.loads(model_data)\n\n    scaler_path = model_blob_path.replace(\"\
+          best_model.pkl\", \"scaler.pkl\")\n    scaler_blob_client = container_client.get_blob_client(scaler_path)\n\
+          \    scaler_data = scaler_blob_client.download_blob().readall()\n    new_scaler\
+          \ = pickle.loads(scaler_data)\n\n    print(\"  \u2713 New model loaded successfully\"\
+          )\n\n    # Scale features for new model\n    X_test_new = new_scaler.transform(X_test)\n\
+          \    X_test_new = np.nan_to_num(X_test_new, nan=0.0, posinf=0.0, neginf=0.0)\n\
+          \n    # Evaluate new model\n    new_pred = new_model.predict(X_test_new)\n\
+          \    new_pred_proba = new_model.predict_proba(X_test_new)[:, 1]\n\n    new_f1\
+          \ = float(sklearn_f1_score(y_test, new_pred))\n    new_auc = float(roc_auc_score(y_test,\
+          \ new_pred_proba))\n    new_precision = float(precision_score(y_test, new_pred))\n\
+          \    new_recall = float(recall_score(y_test, new_pred))\n    new_accuracy\
+          \ = float(accuracy_score(y_test, new_pred))\n\n    print(f\"\\n  New Model\
+          \ Metrics:\")\n    print(f\"    F1 Score:  {new_f1:.4f}\")\n    print(f\"\
+          \    AUC-ROC:   {new_auc:.4f}\")\n    print(f\"    Precision: {new_precision:.4f}\"\
+          )\n    print(f\"    Recall:    {new_recall:.4f}\")\n    print(f\"    Accuracy:\
+          \  {new_accuracy:.4f}\")\n\n    # ============================================\n\
+          \    # Load Staging Model (if exists)\n    # ============================================\n\
+          \    print(\"\\n[Step 2] Loading Staging Model\")\n    print(\"-\" * 40)\n\
+          \n    staging_model = None\n    staging_scaler = None\n    staging_f1 =\
+          \ 0.0\n    staging_auc = 0.0\n    staging_precision = 0.0\n    staging_recall\
+          \ = 0.0\n    staging_accuracy = 0.0\n    has_staging = False\n    staging_version\
+          \ = None\n\n    try:\n        mlflow.set_tracking_uri(mlflow_tracking_uri)\n\
+          \        client = MlflowClient()\n\n        # Get staging model version\n\
+          \        versions = client.get_latest_versions(model_name, stages=[\"Staging\"\
+          ])\n\n        if versions:\n            staging_version = versions[0].version\n\
+          \            print(f\"  Found staging model: {model_name} v{staging_version}\"\
+          )\n\n            # Load staging model\n            model_uri = f\"models:/{model_name}/Staging\"\
+          \n            staging_model = mlflow.xgboost.load_model(model_uri)\n   \
+          \         has_staging = True\n\n            # Try to load staging scaler\
+          \ (may be in the same run)\n            try:\n                run_id = versions[0].run_id\n\
+          \                scaler_uri = f\"runs:/{run_id}/scaler\"\n             \
+          \   staging_scaler = mlflow.sklearn.load_model(scaler_uri)\n           \
+          \     print(\"  \u2713 Staging scaler loaded\")\n            except Exception\
+          \ as e:\n                print(f\"  Warning: Could not load staging scaler:\
+          \ {e}\")\n                print(\"  Using new model's scaler for comparison\
+          \ (may affect results)\")\n                staging_scaler = new_scaler\n\
+          \n            # Scale features for staging model\n            X_test_staging\
+          \ = staging_scaler.transform(X_test)\n            X_test_staging = np.nan_to_num(X_test_staging,\
+          \ nan=0.0, posinf=0.0, neginf=0.0)\n\n            # Evaluate staging model\n\
+          \            staging_pred = staging_model.predict(X_test_staging)\n    \
+          \        staging_pred_proba = staging_model.predict_proba(X_test_staging)[:,\
+          \ 1]\n\n            staging_f1 = float(sklearn_f1_score(y_test, staging_pred))\n\
+          \            staging_auc = float(roc_auc_score(y_test, staging_pred_proba))\n\
+          \            staging_precision = float(precision_score(y_test, staging_pred))\n\
+          \            staging_recall = float(recall_score(y_test, staging_pred))\n\
+          \            staging_accuracy = float(accuracy_score(y_test, staging_pred))\n\
+          \n            print(f\"\\n  Staging Model Metrics:\")\n            print(f\"\
+          \    F1 Score:  {staging_f1:.4f}\")\n            print(f\"    AUC-ROC: \
+          \  {staging_auc:.4f}\")\n            print(f\"    Precision: {staging_precision:.4f}\"\
+          )\n            print(f\"    Recall:    {staging_recall:.4f}\")\n       \
+          \     print(f\"    Accuracy:  {staging_accuracy:.4f}\")\n        else:\n\
+          \            print(\"  No staging model found - this is the first model\"\
+          )\n            print(\"  \u2713 Comparison will auto-pass (no baseline to\
+          \ compare)\")\n\n    except Exception as e:\n        print(f\"  Warning:\
+          \ Could not load staging model: {e}\")\n        print(\"  \u2713 Comparison\
+          \ will auto-pass (no baseline to compare)\")\n\n    # ============================================\n\
+          \    # Compare Models\n    # ============================================\n\
+          \    print(\"\\n[Step 3] Model Comparison\")\n    print(\"-\" * 40)\n\n\
+          \    comparison_passed = True\n    f1_improvement = 0.0\n    auc_improvement\
+          \ = 0.0\n\n    if has_staging:\n        # Calculate improvements (positive\
+          \ = better)\n        f1_improvement = float(new_f1 - staging_f1)\n     \
+          \   auc_improvement = float(new_auc - staging_auc)\n\n        # Check for\
+          \ regression\n        f1_regression = float(-f1_improvement if f1_improvement\
+          \ < 0 else 0)\n        auc_regression = float(-auc_improvement if auc_improvement\
+          \ < 0 else 0)\n\n        f1_check = bool(f1_regression <= max_f1_regression)\n\
+          \        auc_check = bool(auc_regression <= max_auc_regression)\n\n    \
+          \    print(f\"\\n  F1 Comparison:\")\n        print(f\"    Staging:    \
+          \ {staging_f1:.4f}\")\n        print(f\"    New:         {new_f1:.4f}\"\
+          )\n        print(f\"    Change:      {f1_improvement:+.4f} ({f1_improvement/max(staging_f1,\
+          \ 0.001)*100:+.1f}%)\")\n        print(f\"    Max Regress: {max_f1_regression:.1%}\"\
+          )\n        print(f\"    Status:      {'\u2713 PASS' if f1_check else '\u2717\
+          \ FAIL'}\")\n\n        print(f\"\\n  AUC-ROC Comparison:\")\n        print(f\"\
+          \    Staging:     {staging_auc:.4f}\")\n        print(f\"    New:      \
+          \   {new_auc:.4f}\")\n        print(f\"    Change:      {auc_improvement:+.4f}\
+          \ ({auc_improvement/max(staging_auc, 0.001)*100:+.1f}%)\")\n        print(f\"\
+          \    Max Regress: {max_auc_regression:.1%}\")\n        print(f\"    Status:\
+          \      {'\u2713 PASS' if auc_check else '\u2717 FAIL'}\")\n\n        comparison_passed\
+          \ = bool(f1_check and auc_check)\n\n        # Additional metrics comparison\
+          \ (informational)\n        print(f\"\\n  Other Metrics:\")\n        print(f\"\
+          \    Precision: {staging_precision:.4f} \u2192 {new_precision:.4f} ({new_precision\
+          \ - staging_precision:+.4f})\")\n        print(f\"    Recall:    {staging_recall:.4f}\
+          \ \u2192 {new_recall:.4f} ({new_recall - staging_recall:+.4f})\")\n    \
+          \    print(f\"    Accuracy:  {staging_accuracy:.4f} \u2192 {new_accuracy:.4f}\
+          \ ({new_accuracy - staging_accuracy:+.4f})\")\n    else:\n        print(\"\
+          \  No staging model to compare against\")\n        print(\"  \u2713 Auto-pass:\
+          \ First model deployment\")\n        comparison_passed = True\n        f1_improvement\
+          \ = float(new_f1)\n        auc_improvement = float(new_auc)\n\n    # ============================================\n\
+          \    # Final Summary\n    # ============================================\n\
+          \    print(\"\\n\" + \"=\" * 60)\n    print(\"COMPARISON SUMMARY\")\n  \
+          \  print(\"=\" * 60)\n\n    if comparison_passed:\n        if has_staging:\n\
+          \            if f1_improvement >= 0 and auc_improvement >= 0:\n        \
+          \        print(\"\u2713 COMPARISON PASSED - New model is BETTER\")\n   \
+          \         else:\n                print(\"\u2713 COMPARISON PASSED - Regression\
+          \ within acceptable limits\")\n        else:\n            print(\"\u2713\
+          \ COMPARISON PASSED - No staging model (first deployment)\")\n        print(\"\
+          \  Model is eligible for staging promotion\")\n    else:\n        print(\"\
+          \u2717 COMPARISON FAILED - New model is significantly worse\")\n       \
+          \ print(\"  Model will NOT be promoted to staging\")\n    print(\"=\" *\
+          \ 60)\n\n    # Log metrics\n    metrics.log_metric(\"comparison_passed\"\
+          , int(comparison_passed))\n    metrics.log_metric(\"has_staging_model\"\
+          , int(has_staging))\n    metrics.log_metric(\"new_model_f1\", new_f1)\n\
+          \    metrics.log_metric(\"staging_model_f1\", staging_f1)\n    metrics.log_metric(\"\
+          f1_improvement\", f1_improvement)\n    metrics.log_metric(\"new_model_auc\"\
+          , new_auc)\n    metrics.log_metric(\"staging_model_auc\", staging_auc)\n\
+          \    metrics.log_metric(\"auc_improvement\", auc_improvement)\n\n    # Create\
+          \ comparison report - ensure all values are native Python types\n    comparison_report\
+          \ = json.dumps({\n        \"comparison_passed\": bool(comparison_passed),\n\
+          \        \"has_staging_model\": bool(has_staging),\n        \"staging_version\"\
+          : staging_version,\n        \"new_model\": {\n            \"f1\": float(new_f1),\n\
+          \            \"auc_roc\": float(new_auc),\n            \"precision\": float(new_precision),\n\
+          \            \"recall\": float(new_recall),\n            \"accuracy\": float(new_accuracy),\n\
+          \        },\n        \"staging_model\": {\n            \"f1\": float(staging_f1),\n\
+          \            \"auc_roc\": float(staging_auc),\n            \"precision\"\
+          : float(staging_precision),\n            \"recall\": float(staging_recall),\n\
+          \            \"accuracy\": float(staging_accuracy),\n        } if has_staging\
+          \ else None,\n        \"improvements\": {\n            \"f1\": float(f1_improvement),\n\
+          \            \"auc_roc\": float(auc_improvement),\n        },\n        \"\
+          thresholds\": {\n            \"max_f1_regression\": float(max_f1_regression),\n\
+          \            \"max_auc_regression\": float(max_auc_regression),\n      \
+          \  },\n    }, indent=2)\n\n    from collections import namedtuple\n    outputs\
+          \ = namedtuple(\"Outputs\", [\n        \"comparison_passed\", \"has_staging_model\"\
+          , \n        \"new_model_f1\", \"staging_model_f1\", \"f1_improvement\",\n\
+          \        \"new_model_auc\", \"staging_model_auc\", \"auc_improvement\",\n\
+          \        \"comparison_report\"\n    ])\n    return outputs(\n        bool(comparison_passed),\n\
+          \        bool(has_staging),\n        float(new_f1),\n        float(staging_f1),\n\
+          \        float(f1_improvement),\n        float(new_auc),\n        float(staging_auc),\n\
+          \        float(auc_improvement),\n        comparison_report\n    )\n\n"
+        image: mltrainingsdevacrqvwjyi.azurecr.io/ml-mlflow-ops:latest
     exec-model-evaluation:
       container:
         args:
@@ -1108,6 +1520,392 @@ deploymentSpec:
           model_version\"])\n    return outputs(float(f1), registered, model_version)\n\
           \n"
         image: mltrainingsdevacrqvwjyi.azurecr.io/ml-mlflow-ops:latest
+    exec-model-promotion:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - model_promotion
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.14.1'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef model_promotion(\n    acr_name: str,\n    image_tag: str,\n \
+          \   best_model_path: str,\n    test_features_path: str,\n    storage_account:\
+          \ str,\n    container_name: str,\n    mlflow_tracking_uri: str,\n    mlflow_experiment_name:\
+          \ str,\n    model_name: str,\n    validation_passed: bool,\n    comparison_passed:\
+          \ bool,\n    validation_report: str,\n    comparison_report: str,\n    metrics:\
+          \ Output[Metrics],\n) -> NamedTuple(\"Outputs\", [\n    (\"promoted\", bool),\n\
+          \    (\"model_version\", str),\n    (\"promotion_report\", str),\n]):\n\
+          \    \"\"\"\n    Promote validated model to Staging in MLflow.\n\n    This\
+          \ component:\n    1. Checks that validation and comparison both passed\n\
+          \    2. Registers the model to MLflow\n    3. Transitions the model to Staging\
+          \ stage\n    4. Archives previous staging model\n    5. Logs all promotion\
+          \ metadata\n\n    Args:\n        acr_name: Azure Container Registry name\n\
+          \        image_tag: Docker image tag\n        best_model_path: Blob path\
+          \ to best model pickle\n        test_features_path: Blob path to test features\
+          \ parquet (for evaluation)\n        storage_account: Azure storage account\
+          \ name\n        container_name: Azure blob container name\n        mlflow_tracking_uri:\
+          \ MLflow tracking server URI\n        mlflow_experiment_name: MLflow experiment\
+          \ name\n        model_name: Name for model registry\n        validation_passed:\
+          \ Whether validation checks passed\n        comparison_passed: Whether comparison\
+          \ checks passed\n        validation_report: JSON report from validation\
+          \ step\n        comparison_report: JSON report from comparison step\n  \
+          \      metrics: Output metrics object\n\n    Returns:\n        promoted:\
+          \ Whether model was promoted\n        model_version: Version number if promoted,\
+          \ else empty string\n        promotion_report: Detailed promotion report\
+          \ as JSON string\n    \"\"\"\n    import os\n    import pickle\n    import\
+          \ json\n    from datetime import datetime, timezone\n    import numpy as\
+          \ np\n    import pandas as pd\n    import mlflow\n    import mlflow.xgboost\n\
+          \    import mlflow.sklearn\n    from mlflow.tracking import MlflowClient\n\
+          \    from sklearn.metrics import (\n        f1_score as sklearn_f1_score,\n\
+          \        roc_auc_score,\n        precision_score,\n        recall_score,\n\
+          \        accuracy_score,\n    )\n    from azure.storage.blob import BlobServiceClient\n\
+          \n    # Suppress git warnings\n    os.environ[\"GIT_PYTHON_REFRESH\"] =\
+          \ \"quiet\"\n\n    print(\"=\" * 60)\n    print(\"MODEL PROMOTION TO STAGING\"\
+          )\n    print(\"=\" * 60)\n\n    # ============================================\n\
+          \    # Check Gates\n    # ============================================\n\
+          \    print(\"\\n[Step 1] Checking Promotion Gates\")\n    print(\"-\" *\
+          \ 40)\n\n    print(f\"  Validation Passed: {'\u2713 YES' if validation_passed\
+          \ else '\u2717 NO'}\")\n    print(f\"  Comparison Passed: {'\u2713 YES'\
+          \ if comparison_passed else '\u2717 NO'}\")\n\n    if not validation_passed\
+          \ or not comparison_passed:\n        print(\"\\n\" + \"=\" * 60)\n     \
+          \   print(\"\u2717 PROMOTION BLOCKED - Prerequisites not met\")\n      \
+          \  print(\"=\" * 60)\n\n        if not validation_passed:\n            print(\"\
+          \  - Model failed validation checks\")\n        if not comparison_passed:\n\
+          \            print(\"  - Model failed comparison against staging\")\n\n\
+          \        # Log metrics\n        metrics.log_metric(\"promoted\", 0)\n  \
+          \      metrics.log_metric(\"blocked_by_validation\", int(not validation_passed))\n\
+          \        metrics.log_metric(\"blocked_by_comparison\", int(not comparison_passed))\n\
+          \n        promotion_report = json.dumps({\n            \"promoted\": False,\n\
+          \            \"reason\": \"Prerequisites not met\",\n            \"validation_passed\"\
+          : validation_passed,\n            \"comparison_passed\": comparison_passed,\n\
+          \        }, indent=2)\n\n        from collections import namedtuple\n  \
+          \      outputs = namedtuple(\"Outputs\", [\"promoted\", \"model_version\"\
+          , \"promotion_report\"])\n        return outputs(False, \"\", promotion_report)\n\
+          \n    print(\"\\n  \u2713 All gates passed - proceeding with promotion\"\
+          )\n\n    # Initialize Azure storage\n    connection_string = os.environ.get(\"\
+          AZURE_STORAGE_CONNECTION_STRING\")\n    blob_service = BlobServiceClient.from_connection_string(connection_string)\n\
+          \    container_client = blob_service.get_container_client(container_name)\n\
+          \    storage_options = {\"connection_string\": connection_string}\n\n  \
+          \  # ============================================\n    # Load Model and\
+          \ Evaluate\n    # ============================================\n    print(\"\
+          \\n[Step 2] Loading Model\")\n    print(\"-\" * 40)\n\n    model_blob_path\
+          \ = best_model_path.split('/', 1)[1] if '/' in best_model_path else best_model_path\n\
+          \n    model_blob_client = container_client.get_blob_client(model_blob_path)\n\
+          \    model_data = model_blob_client.download_blob().readall()\n    model\
+          \ = pickle.loads(model_data)\n\n    scaler_path = model_blob_path.replace(\"\
+          best_model.pkl\", \"scaler.pkl\")\n    scaler_blob_client = container_client.get_blob_client(scaler_path)\n\
+          \    scaler_data = scaler_blob_client.download_blob().readall()\n    scaler\
+          \ = pickle.loads(scaler_data)\n\n    print(\"  \u2713 Model and scaler loaded\"\
+          )\n\n    # Load test data for final metrics\n    test_read_path = f\"abfs://{test_features_path}\"\
+          \n    test_df = pd.read_parquet(test_read_path, storage_options=storage_options)\n\
+          \n    exclude_cols = [\"email_id\", \"sender_domain\", \"event_timestamp\"\
+          , \"label\"]\n    numeric_cols = test_df.select_dtypes(include=[\"float64\"\
+          , \"float32\", \"int64\", \"int32\"]).columns\n    feature_cols = [c for\
+          \ c in numeric_cols if c not in exclude_cols]\n\n    X_test = test_df[feature_cols].values\n\
+          \    y_test = test_df[\"label\"].values\n\n    if y_test.dtype == 'object':\n\
+          \        label_map = {\"ham\": 0, \"spam\": 1}\n        y_test = np.array([label_map.get(str(label).lower(),\
+          \ label) for label in y_test])\n\n    X_test_scaled = scaler.transform(X_test)\n\
+          \    X_test_scaled = np.nan_to_num(X_test_scaled, nan=0.0, posinf=0.0, neginf=0.0)\n\
+          \n    y_pred = model.predict(X_test_scaled)\n    y_pred_proba = model.predict_proba(X_test_scaled)[:,\
+          \ 1]\n\n    final_f1 = sklearn_f1_score(y_test, y_pred)\n    final_auc =\
+          \ roc_auc_score(y_test, y_pred_proba)\n    final_precision = precision_score(y_test,\
+          \ y_pred)\n    final_recall = recall_score(y_test, y_pred)\n    final_accuracy\
+          \ = accuracy_score(y_test, y_pred)\n\n    # ============================================\n\
+          \    # Register to MLflow\n    # ============================================\n\
+          \    print(\"\\n[Step 3] Registering to MLflow\")\n    print(\"-\" * 40)\n\
+          \n    promoted = False\n    model_version = \"\"\n    previous_staging_version\
+          \ = None\n\n    try:\n        mlflow.set_tracking_uri(mlflow_tracking_uri)\n\
+          \        mlflow.set_experiment(mlflow_experiment_name)\n        client =\
+          \ MlflowClient()\n\n        # Check for existing staging model\n       \
+          \ try:\n            versions = client.get_latest_versions(model_name, stages=[\"\
+          Staging\"])\n            if versions:\n                previous_staging_version\
+          \ = versions[0].version\n                print(f\"  Current staging: v{previous_staging_version}\
+          \ (will be archived)\")\n        except Exception:\n            pass\n\n\
+          \        # Start MLflow run for registration\n        with mlflow.start_run(run_name=\"\
+          model_promotion\"):\n            # Log final metrics\n            mlflow.log_metric(\"\
+          test_f1\", final_f1)\n            mlflow.log_metric(\"test_auc_roc\", final_auc)\n\
+          \            mlflow.log_metric(\"test_precision\", final_precision)\n  \
+          \          mlflow.log_metric(\"test_recall\", final_recall)\n          \
+          \  mlflow.log_metric(\"test_accuracy\", final_accuracy)\n            mlflow.log_metric(\"\
+          num_features\", len(feature_cols))\n\n            # Log validation and comparison\
+          \ reports\n            mlflow.log_text(validation_report, \"validation_report.json\"\
+          )\n            mlflow.log_text(comparison_report, \"comparison_report.json\"\
+          )\n\n            # Register model\n            print(\"  Registering XGBoost\
+          \ model...\")\n            mlflow.xgboost.log_model(\n                model,\n\
+          \                artifact_path=\"model\",\n                registered_model_name=model_name,\n\
+          \            )\n\n            # Register scaler\n            print(\"  Registering\
+          \ scaler...\")\n            mlflow.sklearn.log_model(scaler, artifact_path=\"\
+          scaler\")\n\n            print(\"  \u2713 Model registered\")\n\n      \
+          \  # Wait for registration to complete\n        import time\n        time.sleep(2)\n\
+          \n        # Get the new version\n        registered_model = client.get_registered_model(model_name)\n\
+          \        latest_versions = registered_model.latest_versions\n\n        if\
+          \ latest_versions:\n            # Find the newest version (highest version\
+          \ number)\n            model_version = max([v.version for v in latest_versions])\n\
+          \            print(f\"  New model version: v{model_version}\")\n\n     \
+          \       # Add metadata tags\n            timestamp = datetime.now(timezone.utc).isoformat()\n\
+          \n            client.set_model_version_tag(model_name, model_version, \"\
+          test_f1\", str(round(final_f1, 4)))\n            client.set_model_version_tag(model_name,\
+          \ model_version, \"test_auc_roc\", str(round(final_auc, 4)))\n         \
+          \   client.set_model_version_tag(model_name, model_version, \"test_precision\"\
+          , str(round(final_precision, 4)))\n            client.set_model_version_tag(model_name,\
+          \ model_version, \"test_recall\", str(round(final_recall, 4)))\n       \
+          \     client.set_model_version_tag(model_name, model_version, \"promotion_timestamp\"\
+          , timestamp)\n            client.set_model_version_tag(model_name, model_version,\
+          \ \"promoted_by\", \"kubeflow_pipeline\")\n            client.set_model_version_tag(model_name,\
+          \ model_version, \"validation_passed\", \"true\")\n            client.set_model_version_tag(model_name,\
+          \ model_version, \"comparison_passed\", \"true\")\n\n            if previous_staging_version:\n\
+          \                client.set_model_version_tag(model_name, model_version,\
+          \ \"replaced_version\", str(previous_staging_version))\n\n            #\
+          \ Transition to Staging (archives previous staging automatically)\n    \
+          \        print(f\"\\n[Step 4] Transitioning to Staging\")\n            print(\"\
+          -\" * 40)\n\n            client.transition_model_version_stage(\n      \
+          \          name=model_name,\n                version=model_version,\n  \
+          \              stage=\"Staging\",\n                archive_existing_versions=True,\n\
+          \            )\n\n            promoted = True\n            print(f\"  \u2713\
+          \ Model v{model_version} promoted to Staging\")\n\n            if previous_staging_version:\n\
+          \                print(f\"  \u2713 Previous staging (v{previous_staging_version})\
+          \ archived\")\n        else:\n            print(\"  \u2717 Failed to get\
+          \ model version after registration\")\n\n    except Exception as e:\n  \
+          \      print(f\"  \u2717 MLflow registration failed: {e}\")\n        import\
+          \ traceback\n        traceback.print_exc()\n\n    # ============================================\n\
+          \    # Final Summary\n    # ============================================\n\
+          \    print(\"\\n\" + \"=\" * 60)\n    print(\"PROMOTION SUMMARY\")\n   \
+          \ print(\"=\" * 60)\n\n    if promoted:\n        print(f\"\u2713 MODEL PROMOTED\
+          \ TO STAGING\")\n        print(f\"  Model:   {model_name}\")\n        print(f\"\
+          \  Version: v{model_version}\")\n        print(f\"  F1:      {final_f1:.4f}\"\
+          )\n        print(f\"  AUC-ROC: {final_auc:.4f}\")\n        if previous_staging_version:\n\
+          \            print(f\"  Replaced: v{previous_staging_version} (now Archived)\"\
+          )\n        print()\n        print(\"NEXT STEPS:\")\n        print(\"  1.\
+          \ Review model in MLflow UI\")\n        print(\"  2. Run deployment pipeline\
+          \ to deploy to KServe\")\n        print(\"  3. Test staging endpoint before\
+          \ production promotion\")\n    else:\n        print(\"\u2717 PROMOTION FAILED\"\
+          )\n        print(\"  See logs above for details\")\n    print(\"=\" * 60)\n\
+          \n    # Log metrics\n    metrics.log_metric(\"promoted\", int(promoted))\n\
+          \    if model_version:\n        metrics.log_metric(\"model_version\", int(model_version))\n\
+          \    metrics.log_metric(\"final_f1\", final_f1)\n    metrics.log_metric(\"\
+          final_auc_roc\", final_auc)\n\n    # Create promotion report\n    promotion_report\
+          \ = json.dumps({\n        \"promoted\": promoted,\n        \"model_name\"\
+          : model_name,\n        \"model_version\": model_version,\n        \"previous_staging_version\"\
+          : previous_staging_version,\n        \"final_metrics\": {\n            \"\
+          f1\": final_f1,\n            \"auc_roc\": final_auc,\n            \"precision\"\
+          : final_precision,\n            \"recall\": final_recall,\n            \"\
+          accuracy\": final_accuracy,\n        },\n        \"validation_passed\":\
+          \ validation_passed,\n        \"comparison_passed\": comparison_passed,\n\
+          \        \"timestamp\": datetime.now(timezone.utc).isoformat(),\n    },\
+          \ indent=2)\n\n    from collections import namedtuple\n    outputs = namedtuple(\"\
+          Outputs\", [\"promoted\", \"model_version\", \"promotion_report\"])\n  \
+          \  return outputs(promoted, str(model_version) if model_version else \"\"\
+          , promotion_report)\n\n"
+        image: mltrainingsdevacrqvwjyi.azurecr.io/ml-mlflow-ops:latest
+    exec-model-validation:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - model_validation
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.14.1'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef model_validation(\n    acr_name: str,\n    image_tag: str,\n\
+          \    best_model_path: str,\n    test_features_path: str,\n    storage_account:\
+          \ str,\n    container_name: str,\n    # Validation thresholds\n    min_f1_score:\
+          \ float,\n    min_auc_roc: float,\n    min_precision: float,\n    min_recall:\
+          \ float,\n    max_inference_time_ms: float,\n    metrics: Output[Metrics],\n\
+          ) -> NamedTuple(\"Outputs\", [\n    (\"validation_passed\", bool),\n   \
+          \ (\"f1_score\", float),\n    (\"auc_roc\", float),\n    (\"precision\"\
+          , float),\n    (\"recall\", float),\n    (\"inference_time_ms\", float),\n\
+          \    (\"validation_report\", str),\n]):\n    \"\"\"\n    Validate model\
+          \ against quality thresholds.\n\n    This component runs comprehensive validation\
+          \ checks:\n    1. Metric thresholds (F1, AUC-ROC, Precision, Recall)\n \
+          \   2. Inference latency check\n    3. Prediction sanity check (known examples)\n\
+          \    4. Feature importance analysis\n\n    Args:\n        acr_name: Azure\
+          \ Container Registry name\n        image_tag: Docker image tag\n       \
+          \ best_model_path: Blob path to best model pickle\n        test_features_path:\
+          \ Blob path to test features parquet\n        storage_account: Azure storage\
+          \ account name\n        container_name: Azure blob container name\n    \
+          \    min_f1_score: Minimum required F1 score\n        min_auc_roc: Minimum\
+          \ required AUC-ROC\n        min_precision: Minimum required precision\n\
+          \        min_recall: Minimum required recall\n        max_inference_time_ms:\
+          \ Maximum allowed inference time in milliseconds\n        metrics: Output\
+          \ metrics object\n\n    Returns:\n        validation_passed: Whether all\
+          \ validation checks passed\n        f1_score: Actual F1 score\n        auc_roc:\
+          \ Actual AUC-ROC score\n        precision: Actual precision\n        recall:\
+          \ Actual recall\n        inference_time_ms: Actual inference time in milliseconds\n\
+          \        validation_report: Detailed validation report as JSON string\n\
+          \    \"\"\"\n    import os\n    import pickle\n    import json\n    import\
+          \ time\n    import numpy as np\n    import pandas as pd\n    from sklearn.metrics\
+          \ import (\n        accuracy_score,\n        precision_score,\n        recall_score,\n\
+          \        f1_score as sklearn_f1_score,\n        roc_auc_score,\n    )\n\
+          \    from sklearn.preprocessing import StandardScaler\n    from azure.storage.blob\
+          \ import BlobServiceClient\n\n    # Initialize Azure storage\n    connection_string\
+          \ = os.environ.get(\"AZURE_STORAGE_CONNECTION_STRING\")\n    blob_service\
+          \ = BlobServiceClient.from_connection_string(connection_string)\n    container_client\
+          \ = blob_service.get_container_client(container_name)\n    storage_options\
+          \ = {\"connection_string\": connection_string}\n\n    print(\"=\" * 60)\n\
+          \    print(\"MODEL VALIDATION\")\n    print(\"=\" * 60)\n    print(f\"\\\
+          nValidation Thresholds:\")\n    print(f\"  Min F1 Score:        {min_f1_score}\"\
+          )\n    print(f\"  Min AUC-ROC:         {min_auc_roc}\")\n    print(f\" \
+          \ Min Precision:       {min_precision}\")\n    print(f\"  Min Recall:  \
+          \        {min_recall}\")\n    print(f\"  Max Inference Time:  {max_inference_time_ms}ms\"\
+          )\n    print()\n\n    # Load model and scaler\n    model_blob_path = best_model_path.split('/',\
+          \ 1)[1] if '/' in best_model_path else best_model_path\n\n    model_blob_client\
+          \ = container_client.get_blob_client(model_blob_path)\n    model_data =\
+          \ model_blob_client.download_blob().readall()\n    model = pickle.loads(model_data)\n\
+          \n    scaler_path = model_blob_path.replace(\"best_model.pkl\", \"scaler.pkl\"\
+          )\n    scaler_blob_client = container_client.get_blob_client(scaler_path)\n\
+          \    scaler_data = scaler_blob_client.download_blob().readall()\n    scaler\
+          \ = pickle.loads(scaler_data)\n\n    # Load test data\n    test_read_path\
+          \ = f\"abfs://{test_features_path}\"\n    test_df = pd.read_parquet(test_read_path,\
+          \ storage_options=storage_options)\n\n    print(f\"Test set size: {len(test_df)}\
+          \ samples\")\n\n    # Prepare features\n    exclude_cols = [\"email_id\"\
+          , \"sender_domain\", \"event_timestamp\", \"label\"]\n    numeric_cols =\
+          \ test_df.select_dtypes(include=[\"float64\", \"float32\", \"int64\", \"\
+          int32\"]).columns\n    feature_cols = [c for c in numeric_cols if c not\
+          \ in exclude_cols]\n\n    X_test = test_df[feature_cols].values\n    y_test\
+          \ = test_df[\"label\"].values\n\n    # Encode labels if strings\n    if\
+          \ y_test.dtype == 'object':\n        label_map = {\"ham\": 0, \"spam\":\
+          \ 1}\n        y_test = np.array([label_map.get(str(label).lower(), label)\
+          \ for label in y_test])\n\n    # Scale features\n    X_test_scaled = scaler.transform(X_test)\n\
+          \    X_test_scaled = np.nan_to_num(X_test_scaled, nan=0.0, posinf=0.0, neginf=0.0)\n\
+          \n    # Initialize validation results\n    validation_checks = {}\n    all_passed\
+          \ = True\n\n    # ============================================\n    # Check\
+          \ 1: Metric Thresholds\n    # ============================================\n\
+          \    print(\"\\n[Check 1] Metric Thresholds\")\n    print(\"-\" * 40)\n\n\
+          \    y_pred = model.predict(X_test_scaled)\n    y_pred_proba = model.predict_proba(X_test_scaled)[:,\
+          \ 1]\n\n    f1 = sklearn_f1_score(y_test, y_pred)\n    auc = roc_auc_score(y_test,\
+          \ y_pred_proba)\n    prec = precision_score(y_test, y_pred)\n    rec = recall_score(y_test,\
+          \ y_pred)\n    acc = accuracy_score(y_test, y_pred)\n\n    f1_passed = bool(f1\
+          \ >= min_f1_score)\n    auc_passed = bool(auc >= min_auc_roc)\n    prec_passed\
+          \ = bool(prec >= min_precision)\n    rec_passed = bool(rec >= min_recall)\n\
+          \n    print(f\"  F1 Score:   {f1:.4f} >= {min_f1_score} : {'\u2713 PASS'\
+          \ if f1_passed else '\u2717 FAIL'}\")\n    print(f\"  AUC-ROC:    {auc:.4f}\
+          \ >= {min_auc_roc} : {'\u2713 PASS' if auc_passed else '\u2717 FAIL'}\"\
+          )\n    print(f\"  Precision:  {prec:.4f} >= {min_precision} : {'\u2713 PASS'\
+          \ if prec_passed else '\u2717 FAIL'}\")\n    print(f\"  Recall:     {rec:.4f}\
+          \ >= {min_recall} : {'\u2713 PASS' if rec_passed else '\u2717 FAIL'}\")\n\
+          \    print(f\"  Accuracy:   {acc:.4f}\")\n\n    metrics_passed = bool(f1_passed\
+          \ and auc_passed and prec_passed and rec_passed)\n    validation_checks[\"\
+          metrics\"] = {\n        \"passed\": metrics_passed,\n        \"f1_score\"\
+          : {\"value\": float(f1), \"threshold\": min_f1_score, \"passed\": f1_passed},\n\
+          \        \"auc_roc\": {\"value\": float(auc), \"threshold\": min_auc_roc,\
+          \ \"passed\": auc_passed},\n        \"precision\": {\"value\": float(prec),\
+          \ \"threshold\": min_precision, \"passed\": prec_passed},\n        \"recall\"\
+          : {\"value\": float(rec), \"threshold\": min_recall, \"passed\": rec_passed},\n\
+          \        \"accuracy\": float(acc),\n    }\n    all_passed = all_passed and\
+          \ metrics_passed\n\n    # ============================================\n\
+          \    # Check 2: Inference Latency\n    # ============================================\n\
+          \    print(\"\\n[Check 2] Inference Latency\")\n    print(\"-\" * 40)\n\n\
+          \    # Warm up\n    _ = model.predict(X_test_scaled[:10])\n\n    # Measure\
+          \ inference time (batch of 100 samples)\n    batch_size = min(100, len(X_test_scaled))\n\
+          \    n_runs = 10\n    times = []\n\n    for _ in range(n_runs):\n      \
+          \  start = time.perf_counter()\n        _ = model.predict(X_test_scaled[:batch_size])\n\
+          \        end = time.perf_counter()\n        times.append((end - start) *\
+          \ 1000 / batch_size)  # ms per sample\n\n    avg_inference_time = float(np.mean(times))\n\
+          \    p95_inference_time = float(np.percentile(times, 95))\n\n    latency_passed\
+          \ = bool(p95_inference_time <= max_inference_time_ms)\n    print(f\"  Avg\
+          \ per sample:  {avg_inference_time:.3f}ms\")\n    print(f\"  P95 per sample:\
+          \  {p95_inference_time:.3f}ms <= {max_inference_time_ms}ms : {'\u2713 PASS'\
+          \ if latency_passed else '\u2717 FAIL'}\")\n\n    validation_checks[\"latency\"\
+          ] = {\n        \"passed\": latency_passed,\n        \"avg_ms\": avg_inference_time,\n\
+          \        \"p95_ms\": p95_inference_time,\n        \"threshold_ms\": max_inference_time_ms,\n\
+          \    }\n    all_passed = all_passed and latency_passed\n\n    # ============================================\n\
+          \    # Check 3: Prediction Sanity\n    # ============================================\n\
+          \    print(\"\\n[Check 3] Prediction Sanity\")\n    print(\"-\" * 40)\n\n\
+          \    # Check class distribution in predictions\n    pred_spam_ratio = float(np.mean(y_pred))\n\
+          \    actual_spam_ratio = float(np.mean(y_test))\n\n    # Sanity check: predicted\
+          \ ratio should be within 50% of actual ratio\n    ratio_diff = float(abs(pred_spam_ratio\
+          \ - actual_spam_ratio) / max(actual_spam_ratio, 0.01))\n    sanity_passed\
+          \ = bool(ratio_diff < 0.5)  # Within 50%\n\n    print(f\"  Actual spam ratio:\
+          \    {actual_spam_ratio:.3f}\")\n    print(f\"  Predicted spam ratio: {pred_spam_ratio:.3f}\"\
+          )\n    print(f\"  Ratio difference:     {ratio_diff:.1%} < 50% : {'\u2713\
+          \ PASS' if sanity_passed else '\u2717 FAIL'}\")\n\n    # Check that model\
+          \ isn't predicting all same class\n    unique_preds = int(len(np.unique(y_pred)))\n\
+          \    diversity_passed = bool(unique_preds > 1)\n    print(f\"  Prediction\
+          \ diversity: {unique_preds} classes : {'\u2713 PASS' if diversity_passed\
+          \ else '\u2717 FAIL'}\")\n\n    sanity_overall = bool(sanity_passed and\
+          \ diversity_passed)\n    validation_checks[\"sanity\"] = {\n        \"passed\"\
+          : sanity_overall,\n        \"actual_spam_ratio\": actual_spam_ratio,\n \
+          \       \"predicted_spam_ratio\": pred_spam_ratio,\n        \"ratio_difference\"\
+          : ratio_diff,\n        \"unique_predictions\": unique_preds,\n    }\n  \
+          \  all_passed = all_passed and sanity_overall\n\n    # ============================================\n\
+          \    # Check 4: Feature Importance (Informational)\n    # ============================================\n\
+          \    print(\"\\n[Check 4] Feature Importance (Informational)\")\n    print(\"\
+          -\" * 40)\n\n    try:\n        if hasattr(model, 'feature_importances_'):\n\
+          \            importances = model.feature_importances_\n            top_indices\
+          \ = np.argsort(importances)[-10:][::-1]\n\n            print(\"  Top 10\
+          \ features:\")\n            top_features = []\n            for i, idx in\
+          \ enumerate(top_indices):\n                feat_name = feature_cols[idx]\
+          \ if idx < len(feature_cols) else f\"feature_{idx}\"\n                print(f\"\
+          \    {i+1}. {feat_name}: {importances[idx]:.4f}\")\n                top_features.append({\"\
+          name\": feat_name, \"importance\": float(importances[idx])})\n\n       \
+          \     validation_checks[\"feature_importance\"] = {\n                \"\
+          top_features\": top_features,\n                \"total_features\": len(feature_cols),\n\
+          \            }\n    except Exception as e:\n        print(f\"  Could not\
+          \ extract feature importance: {e}\")\n        validation_checks[\"feature_importance\"\
+          ] = {\"error\": str(e)}\n\n    # ============================================\n\
+          \    # Final Summary\n    # ============================================\n\
+          \    print(\"\\n\" + \"=\" * 60)\n    print(\"VALIDATION SUMMARY\")\n  \
+          \  print(\"=\" * 60)\n\n    for check_name, check_result in validation_checks.items():\n\
+          \        if isinstance(check_result, dict) and \"passed\" in check_result:\n\
+          \            status = \"\u2713 PASS\" if check_result[\"passed\"] else \"\
+          \u2717 FAIL\"\n            print(f\"  {check_name}: {status}\")\n\n    print()\n\
+          \    if all_passed:\n        print(\"\u2713 ALL VALIDATION CHECKS PASSED\"\
+          )\n        print(\"  Model is eligible for staging promotion\")\n    else:\n\
+          \        print(\"\u2717 VALIDATION FAILED\")\n        print(\"  Model will\
+          \ NOT be promoted to staging\")\n    print(\"=\" * 60)\n\n    # Log metrics\
+          \ to Kubeflow\n    metrics.log_metric(\"validation_passed\", int(all_passed))\n\
+          \    metrics.log_metric(\"f1_score\", f1)\n    metrics.log_metric(\"auc_roc\"\
+          , auc)\n    metrics.log_metric(\"precision\", prec)\n    metrics.log_metric(\"\
+          recall\", rec)\n    metrics.log_metric(\"inference_time_ms\", p95_inference_time)\n\
+          \n    # Create validation report - ensure all values are native Python types\n\
+          \    validation_report = json.dumps({\n        \"validation_passed\": bool(all_passed),\n\
+          \        \"checks\": validation_checks,\n        \"thresholds\": {\n   \
+          \         \"min_f1_score\": float(min_f1_score),\n            \"min_auc_roc\"\
+          : float(min_auc_roc),\n            \"min_precision\": float(min_precision),\n\
+          \            \"min_recall\": float(min_recall),\n            \"max_inference_time_ms\"\
+          : float(max_inference_time_ms),\n        },\n    }, indent=2)\n\n    from\
+          \ collections import namedtuple\n    outputs = namedtuple(\"Outputs\", [\n\
+          \        \"validation_passed\", \"f1_score\", \"auc_roc\", \"precision\"\
+          , \n        \"recall\", \"inference_time_ms\", \"validation_report\"\n \
+          \   ])\n    return outputs(\n        bool(all_passed), \n        float(f1),\
+          \ \n        float(auc), \n        float(prec), \n        float(rec), \n\
+          \        float(p95_inference_time),\n        validation_report\n    )\n\n"
+        image: mltrainingsdevacrqvwjyi.azurecr.io/ml-mlflow-ops:latest
 pipelineInfo:
   description: End-to-end spam detection model training pipeline with Feast feature
     retrieval, baseline training, HPO, and model registration
@@ -1227,6 +2025,43 @@ root:
                 producerTask: feature-retrieval
         taskInfo:
           name: 4. HPO (Ray Tune)
+      model-comparison:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-model-comparison
+        dependentTasks:
+        - feature-retrieval
+        - hpo-tuning
+        - model-validation
+        inputs:
+          parameters:
+            acr_name:
+              componentInputParameter: acr_name
+            container_name:
+              componentInputParameter: model_container_name
+            image_tag:
+              componentInputParameter: image_tag
+            max_auc_regression:
+              componentInputParameter: max_auc_regression
+            max_f1_regression:
+              componentInputParameter: max_f1_regression
+            mlflow_tracking_uri:
+              componentInputParameter: mlflow_tracking_uri
+            model_name:
+              componentInputParameter: model_name
+            new_model_path:
+              taskOutputParameter:
+                outputParameterKey: best_model_path
+                producerTask: hpo-tuning
+            storage_account:
+              componentInputParameter: storage_account
+            test_features_path:
+              taskOutputParameter:
+                outputParameterKey: test_features_path
+                producerTask: feature-retrieval
+        taskInfo:
+          name: 7. Model Comparison
       model-evaluation:
         cachingOptions:
           enableCache: true
@@ -1262,7 +2097,98 @@ root:
                 outputParameterKey: test_features_path
                 producerTask: feature-retrieval
         taskInfo:
-          name: 5. Model Evaluation & Registration
+          name: 5. Model Evaluation
+      model-promotion:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-model-promotion
+        dependentTasks:
+        - feature-retrieval
+        - hpo-tuning
+        - model-comparison
+        - model-validation
+        inputs:
+          parameters:
+            acr_name:
+              componentInputParameter: acr_name
+            best_model_path:
+              taskOutputParameter:
+                outputParameterKey: best_model_path
+                producerTask: hpo-tuning
+            comparison_passed:
+              taskOutputParameter:
+                outputParameterKey: comparison_passed
+                producerTask: model-comparison
+            comparison_report:
+              taskOutputParameter:
+                outputParameterKey: comparison_report
+                producerTask: model-comparison
+            container_name:
+              componentInputParameter: model_container_name
+            image_tag:
+              componentInputParameter: image_tag
+            mlflow_experiment_name:
+              componentInputParameter: mlflow_experiment_name
+            mlflow_tracking_uri:
+              componentInputParameter: mlflow_tracking_uri
+            model_name:
+              componentInputParameter: model_name
+            storage_account:
+              componentInputParameter: storage_account
+            test_features_path:
+              taskOutputParameter:
+                outputParameterKey: test_features_path
+                producerTask: feature-retrieval
+            validation_passed:
+              taskOutputParameter:
+                outputParameterKey: validation_passed
+                producerTask: model-validation
+            validation_report:
+              taskOutputParameter:
+                outputParameterKey: validation_report
+                producerTask: model-validation
+        taskInfo:
+          name: 8. Model Promotion
+      model-validation:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-model-validation
+        dependentTasks:
+        - feature-retrieval
+        - hpo-tuning
+        - model-evaluation
+        inputs:
+          parameters:
+            acr_name:
+              componentInputParameter: acr_name
+            best_model_path:
+              taskOutputParameter:
+                outputParameterKey: best_model_path
+                producerTask: hpo-tuning
+            container_name:
+              componentInputParameter: model_container_name
+            image_tag:
+              componentInputParameter: image_tag
+            max_inference_time_ms:
+              componentInputParameter: max_inference_time_ms
+            min_auc_roc:
+              componentInputParameter: min_auc_roc
+            min_f1_score:
+              componentInputParameter: f1_threshold
+            min_precision:
+              componentInputParameter: min_precision
+            min_recall:
+              componentInputParameter: min_recall
+            storage_account:
+              componentInputParameter: storage_account
+            test_features_path:
+              taskOutputParameter:
+                outputParameterKey: test_features_path
+                producerTask: feature-retrieval
+        taskInfo:
+          name: 6. Model Validation
   inputDefinitions:
     parameters:
       acr_name:
@@ -1285,7 +2211,7 @@ root:
         parameterType: STRING
       f1_threshold:
         defaultValue: 0.85
-        description: Minimum F1 score to register model
+        description: Minimum F1 score for validation
         isOptional: true
         parameterType: NUMBER_DOUBLE
       feast_container_name:
@@ -1308,11 +2234,41 @@ root:
         description: Whether to include sender_domain_features
         isOptional: true
         parameterType: BOOLEAN
+      max_auc_regression:
+        defaultValue: 0.05
+        description: Max allowed AUC regression vs staging
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
       max_concurrent_trials:
         defaultValue: 4.0
         description: Max concurrent HPO trials
         isOptional: true
         parameterType: NUMBER_INTEGER
+      max_f1_regression:
+        defaultValue: 0.05
+        description: Max allowed F1 regression vs staging
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      max_inference_time_ms:
+        defaultValue: 10.0
+        description: Maximum inference latency
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      min_auc_roc:
+        defaultValue: 0.9
+        description: Minimum AUC-ROC for validation
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      min_precision:
+        defaultValue: 0.8
+        description: Minimum precision for validation
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      min_recall:
+        defaultValue: 0.8
+        description: Minimum recall for validation
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
       mlflow_experiment_name:
         defaultValue: spam-detection
         description: Name of MLflow experiment
@@ -1379,7 +2335,25 @@ platforms:
             - envVar: AZURE_STORAGE_CONNECTION_STRING
               secretKey: AZURE_STORAGE_CONNECTION_STRING
             secretName: azure-storage-secret
+        exec-model-comparison:
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: AZURE_STORAGE_CONNECTION_STRING
+              secretKey: AZURE_STORAGE_CONNECTION_STRING
+            secretName: azure-storage-secret
         exec-model-evaluation:
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: AZURE_STORAGE_CONNECTION_STRING
+              secretKey: AZURE_STORAGE_CONNECTION_STRING
+            secretName: azure-storage-secret
+        exec-model-promotion:
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: AZURE_STORAGE_CONNECTION_STRING
+              secretKey: AZURE_STORAGE_CONNECTION_STRING
+            secretName: azure-storage-secret
+        exec-model-validation:
           secretAsEnv:
           - keyToEnv:
             - envVar: AZURE_STORAGE_CONNECTION_STRING

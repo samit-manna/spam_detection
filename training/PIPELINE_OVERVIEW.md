@@ -4,13 +4,21 @@
 
 This Kubeflow pipeline orchestrates an end-to-end machine learning workflow for spam email detection, integrating Feast for feature management, Ray Tune for hyperparameter optimization, and MLflow for experiment tracking and model registry.
 
+The **8-step pipeline** includes:
+- **Model Evaluation** (Step 5): Computes test metrics and visualizations (confusion matrix, ROC curve, PR curve)
+- **Model Validation** (Step 6): Quality gates checking F1, AUC, precision, recall, latency, and sanity
+- **Model Comparison** (Step 7): Compares against current staging model to prevent regressions
+- **Model Promotion** (Step 8): Registers and transitions to Staging if all gates pass
+
+Deployment to KServe is handled separately via the `model-serving/` pipeline.
+
 ---
 
 ## Pipeline Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                     Spam Detection Training Pipeline                     │
+│               Spam Detection Training Pipeline (8 Steps)                 │
 └─────────────────────────────────────────────────────────────────────────┘
 
     ┌──────────────────────┐
@@ -18,42 +26,99 @@ This Kubeflow pipeline orchestrates an end-to-end machine learning workflow for 
     │  (data_preparation)  │
     └──────────┬───────────┘
                │ Outputs: train_entity_path, test_entity_path
-               │ (email_id, sender_domain, label, event_timestamp)
                ▼
     ┌──────────────────────┐
     │ 2. Feature Retrieval │
     │  (feature_retrieval) │
-    │   Feast Server       │
+    │   Feast Offline      │
     └──────────┬───────────┘
                │ Outputs: train_features_path, test_features_path
                │ (524 features per email)
-               │
                ├─────────────────────┐
+               ▼                     │
+    ┌──────────────────────┐         │
+    │ 3. Baseline Training │         │
+    │  (baseline_training) │         │
+    └──────────┬───────────┘         │
+               ▼                     │
+    ┌──────────────────────┐         │
+    │   4. HPO Tuning      │         │
+    │   (hpo_tuning)       │         │
+    │   Ray Tune + XGBoost │         │
+    └──────────┬───────────┘         │
+               │ Output: best_model_path
+               ├─────────────────────┤
                ▼                     ▼
-    ┌──────────────────────┐   ┌────────────────────────┐
-    │ 3. Baseline Training │   │ (Used for final eval)  │
-    │  (baseline_training) │   │                        │
-    │  Logistic Regression │   │                        │
-    │  or Random Forest    │   │                        │
-    └──────────┬───────────┘   │                        │
-               │                │                        │
-               ▼                │                        │
-    ┌──────────────────────┐   │                        │
-    │   4. HPO Tuning      │   │                        │
-    │   (hpo_tuning)       │   │                        │
-    │   Ray Tune + XGBoost │   │                        │
-    └──────────┬───────────┘   │                        │
-               │ Output: best_model_path                 │
-               │                                         │
-               └────────────┬────────────────────────────┘
-                            ▼
-                 ┌──────────────────────┐
-                 │ 5. Model Evaluation  │
-                 │  (model_evaluation)  │
-                 │  If F1 >= threshold: │
-                 │  → Register to MLflow│
-                 └──────────────────────┘
+    ┌──────────────────────────────────────────────────┐
+    │               5. Model Evaluation                 │
+    │  • Compute test set metrics (F1, AUC, etc.)       │
+    │  • Generate visualizations:                       │
+    │    - Confusion matrix                             │
+    │    - ROC curve                                    │
+    │    - Precision-Recall curve                       │
+    │  • Log artifacts to MLflow                        │
+    └──────────────────────┬───────────────────────────┘
+                           │
+                           ▼
+    ┌──────────────────────────────────────────────────┐
+    │               6. Model Validation                 │
+    │  • Check F1 >= threshold (0.85)                   │
+    │  • Check AUC-ROC >= threshold (0.90)              │
+    │  • Check Precision/Recall >= thresholds (0.80)    │
+    │  • Check inference latency <= 10ms                │
+    │  • Prediction sanity checks                       │
+    │  • Feature importance analysis                    │
+    └──────────────────────┬───────────────────────────┘
+                           │ If validation_passed
+                           ▼
+    ┌──────────────────────────────────────────────────┐
+    │               7. Model Comparison                 │
+    │  • Load current Staging model from MLflow         │
+    │  • Evaluate both on same test set                 │
+    │  • Check F1 regression <= 5%                      │
+    │  • Check AUC regression <= 5%                     │
+    │  • Auto-pass if no staging model exists           │
+    └──────────────────────┬───────────────────────────┘
+                           │ If comparison_passed
+                           ▼
+    ┌──────────────────────────────────────────────────┐
+    │               8. Model Promotion                  │
+    │  • Register model to MLflow                       │
+    │  • Transition to Staging stage                    │
+    │  • Archive previous Staging model                 │
+    │  • Tag with validation/comparison reports         │
+    └──────────────────────────────────────────────────┘
+                           │
+                           ▼
+                  ┌─────────────────┐
+                  │   MLflow        │
+                  │   Staging       │
+                  │   (Ready for    │
+                  │    Deployment)  │
+                  └─────────────────┘
+                           │
+                    [Separate Process]
+                           ▼
+                  ┌─────────────────┐
+                  │   Deployment    │
+                  │   Pipeline      │
+                  │   (KServe)      │
+                  └─────────────────┘
 ```
+
+---
+
+## Validation & Promotion Thresholds
+
+| Threshold | Default | Description |
+|-----------|---------|-------------|
+| `f1_threshold` | 0.85 | Minimum F1 score (registration gate) |
+| `min_auc_roc` | 0.90 | Minimum AUC-ROC (validation gate) |
+| `min_precision` | 0.80 | Minimum precision (validation gate) |
+| `min_recall` | 0.80 | Minimum recall (validation gate) |
+| `max_inference_time_ms` | 10.0 | Max P95 inference latency (validation gate) |
+| `max_f1_regression` | 0.05 | Max F1 drop vs staging (comparison gate) |
+| `max_auc_regression` | 0.05 | Max AUC drop vs staging (comparison gate) |
 
 ---
 
@@ -220,17 +285,17 @@ This Kubeflow pipeline orchestrates an end-to-end machine learning workflow for 
 
 ---
 
-### 5. Model Evaluation & Registration
+### 5. Model Evaluation
 **Component:** `model_evaluation`  
 **Image:** `ml-mlflow-ops:v0.1`
 
-**Purpose:** Evaluate best model on holdout test set and register if threshold met
+**Purpose:** Evaluate best model on test set and generate visualizations
 
 **Inputs:**
 - `best_model_path`: Best model from HPO (from Step 4)
 - `test_features_path`: Test features (from Step 2)
-- `f1_threshold`: Minimum F1 score for registration (default: 0.85)
-- `model_name`: Name in MLflow Model Registry (default: "spam-detector")
+- `mlflow_tracking_uri`: MLflow server URL
+- `mlflow_experiment_name`: Experiment name
 
 **Processing:**
 - Loads best model and scaler from Azure Blob
@@ -241,32 +306,123 @@ This Kubeflow pipeline orchestrates an end-to-end machine learning workflow for 
   - Accuracy, Precision, Recall, F1, AUC-ROC
   - Confusion matrix
   - Classification report
-
-**Conditional Registration:**
-```python
-if test_f1 >= f1_threshold:
-    # Register model to MLflow Model Registry
-    # Set stage to "Staging"
-    # Tag with test metrics
-else:
-    # Skip registration (model not good enough)
-```
+- Generates visualization plots
 
 **Outputs:**
 - `test_f1`: F1 score on test set
-- `registered`: Boolean (True if registered)
-- `model_version`: MLflow model version (e.g., "1", "2")
+- `test_auc_roc`: AUC-ROC score on test set
+- `test_precision`, `test_recall`: Additional metrics
+- `metrics_path`: Path to saved metrics JSON
 
 **Artifacts Logged to MLflow:**
-- Confusion matrix plot
-- ROC curve plot
-- Precision-Recall curve plot
+- Confusion matrix plot (PNG)
+- ROC curve plot (PNG)
+- Precision-Recall curve plot (PNG)
 - Classification report (text)
-- Registered model (if threshold met)
+- Full metrics JSON
 
-**Model Tags (if registered):**
-- `test_f1`, `test_auc_roc`, `test_precision`, `test_recall`
-- Stage: "Staging" (ready for further validation)
+---
+
+### 6. Model Validation
+**Component:** `model_validation`  
+**Image:** `ml-mlflow-ops:v0.1`
+
+**Purpose:** Quality gate checking model meets minimum thresholds
+
+**Inputs:**
+- `best_model_path`: Best model from HPO (from Step 4)
+- `test_features_path`: Test features (from Step 2)
+- `min_f1`: Minimum F1 threshold (default: 0.85)
+- `min_auc_roc`: Minimum AUC-ROC threshold (default: 0.90)
+- `min_precision`: Minimum precision threshold (default: 0.80)
+- `min_recall`: Minimum recall threshold (default: 0.80)
+- `max_inference_time_ms`: Maximum P95 inference latency (default: 10.0)
+
+**Validation Checks:**
+1. **F1 Score**: `test_f1 >= min_f1`
+2. **AUC-ROC**: `test_auc_roc >= min_auc_roc`
+3. **Precision**: `test_precision >= min_precision`
+4. **Recall**: `test_recall >= min_recall`
+5. **Inference Latency**: `p95_latency_ms <= max_inference_time_ms`
+6. **Sanity Checks**: Predictions include both classes, probabilities valid
+
+**Outputs:**
+- `validation_passed`: Boolean (True if all checks pass)
+- `validation_report`: JSON with detailed check results
+
+**Failure Handling:**
+- If any check fails, `validation_passed=False`
+- Pipeline continues to comparison step (may still skip promotion)
+- Validation report logged to MLflow for debugging
+
+---
+
+### 7. Model Comparison
+**Component:** `model_comparison`  
+**Image:** `ml-mlflow-ops:v0.1`
+
+**Purpose:** Compare new model against current staging model (prevent regressions)
+
+**Inputs:**
+- `best_model_path`: New candidate model (from Step 4)
+- `test_features_path`: Test features (from Step 2)
+- `validation_passed`: Gate from Step 6
+- `model_name`: MLflow model name (default: "spam-detector")
+- `mlflow_tracking_uri`: MLflow server URL
+- `max_f1_regression`: Max allowed F1 drop (default: 0.05)
+- `max_auc_regression`: Max allowed AUC drop (default: 0.05)
+
+**Processing:**
+1. If `validation_passed=False`, skip comparison → `comparison_passed=False`
+2. Load current Staging model from MLflow Model Registry
+3. If no Staging model exists, auto-pass → `comparison_passed=True`
+4. Evaluate both models on same test set
+5. Compare metrics:
+   - `new_f1 >= staging_f1 - max_f1_regression`
+   - `new_auc >= staging_auc - max_auc_regression`
+
+**Outputs:**
+- `comparison_passed`: Boolean (True if better or no regression)
+- `comparison_report`: JSON with metric differences
+
+**Special Cases:**
+- **No Staging Model**: Auto-pass (first model gets promoted)
+- **Validation Failed**: Auto-fail (don't compare bad models)
+
+---
+
+### 8. Model Promotion
+**Component:** `model_promotion`  
+**Image:** `ml-mlflow-ops:v0.1`
+
+**Purpose:** Register model to MLflow and transition to Staging
+
+**Inputs:**
+- `best_model_path`: Model to promote (from Step 4)
+- `comparison_passed`: Gate from Step 7
+- `validation_report`: From Step 6
+- `comparison_report`: From Step 7
+- `model_name`: MLflow model name (default: "spam-detector")
+- `mlflow_tracking_uri`: MLflow server URL
+
+**Processing:**
+1. If `comparison_passed=False`, skip promotion
+2. Register model to MLflow Model Registry
+3. Transition to "Staging" stage
+4. Archive previous Staging version (if exists)
+5. Tag model with:
+   - Validation report
+   - Comparison report
+   - Promotion timestamp
+
+**Outputs:**
+- `promoted`: Boolean (True if promoted)
+- `model_version`: New version number (e.g., "5")
+
+**Post-Promotion State:**
+- Model is in "Staging" stage
+- Ready for deployment via separate KServe pipeline
+- Production promotion requires manual approval
 
 ---
 
@@ -278,7 +434,10 @@ else:
 | 2. Feature Retrieval | Entity parquets | Feast feature lookup | `train_features.parquet` (524 cols), `test_features.parquet` |
 | 3. Baseline | Train features | Simple model training | `baseline_model.pkl`, validation metrics |
 | 4. HPO | Train features | Ray Tune XGBoost optimization | `best_model.pkl`, best hyperparameters |
-| 5. Evaluation | Best model + test features | Test set evaluation | Test metrics, MLflow registration |
+| 5. Evaluation | Best model + test features | Metrics & visualizations | Plots, classification report, metrics JSON |
+| 6. Validation | Best model + test features | Quality gate checks | `validation_passed`, validation report |
+| 7. Comparison | Best model + staging model | Regression check | `comparison_passed`, comparison report |
+| 8. Promotion | Best model + reports | Register & stage | `promoted`, model version |
 
 ---
 
@@ -311,8 +470,11 @@ kfp run create \
 - **Feature Retrieval**: 3-5 minutes (depends on Feast server)
 - **Baseline Training**: 5-10 minutes
 - **HPO Tuning**: 30-120 minutes (depends on num_trials, cluster resources)
-- **Model Evaluation**: 2-5 minutes
-- **Total**: ~45-140 minutes
+- **Model Evaluation**: 2-3 minutes
+- **Model Validation**: 1-2 minutes
+- **Model Comparison**: 2-3 minutes
+- **Model Promotion**: 1-2 minutes
+- **Total**: ~45-150 minutes
 
 ### Resource Requirements
 - **Data Prep/Feature Retrieval**: 2 CPU, 4Gi memory
@@ -429,9 +591,27 @@ datasets/
 - **Cause**: Insufficient resources or too many trials
 - **Fix**: Reduce `num_trials`, increase `max_wait_time`, or add more worker nodes
 
-**5. Model not registered**
-- **Cause**: F1 score below threshold
-- **Fix**: Check MLflow logs, adjust `f1_threshold`, or retrain with more data/trials
+**5. Model not registered (promotion skipped)**
+- **Cause**: Validation or comparison failed
+- **Fix**: Check `validation_report` and `comparison_report` outputs for specific failures. Common causes:
+  - F1 below 0.85 threshold
+  - AUC-ROC below 0.90 threshold
+  - Regression vs staging model > 5%
+
+**6. TypeError: Object of type bool_ is not JSON serializable**
+- **Cause**: NumPy types not converted to native Python types before JSON serialization
+- **Fix**: Ensure all NumPy values use `bool()`, `float()`, `int()` wrappers in validation/comparison components
+
+**7. NameError: name 'datetime' is not defined**
+- **Cause**: Missing import inside KFP lightweight component function
+- **Fix**: KFP components require all imports inside the function body, not at module level. Add `from datetime import datetime, timezone` inside the function.
+
+**8. Validation passed but comparison failed**
+- **Cause**: New model meets quality thresholds but regresses vs staging
+- **Fix**: Review staging model metrics. If staging model is unusually good, consider:
+  - Increasing `max_f1_regression`/`max_auc_regression` thresholds
+  - Checking for data distribution shift
+  - Running more HPO trials
 
 ---
 
