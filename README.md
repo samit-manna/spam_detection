@@ -249,7 +249,9 @@ spam_detection/
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/predict` | POST | Single email prediction |
-| `/predict/batch` | POST | Batch inference (Ray) |
+| `/predict/batch-sync` | POST | Sync batch (up to 100 emails) |
+| `/predict/batch` | POST | Async batch job (large datasets via Ray) |
+| `/predict/batch/{job_id}` | GET | Check batch job status |
 | `/health` | GET | Service health check |
 | `/ready` | GET | Readiness check |
 

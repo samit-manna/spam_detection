@@ -208,7 +208,7 @@ done
 
 echo ""
 echo -e "${YELLOW}Batch Sync Test (3 emails):${NC}"
-RESPONSE=$(api_call "POST" "/predict/batch" '{
+RESPONSE=$(api_call "POST" "/predict/batch-sync" '{
         "emails": [
             {"email_id": "batch-1", "subject": "Meeting tomorrow", "body": "Hi, can we meet at 3pm?", "sender": "alice@company.com"},
             {"email_id": "batch-2", "subject": "FREE iPhone!!!", "body": "Click now to win!", "sender": "promo@spam.com"},
