@@ -91,9 +91,11 @@ spec:
             echo "Source: ${STORAGE_URL}"
             echo "Destination: /mnt/models/spam-detector"
             
-            mkdir -p /mnt/models/spam-detector
+            # Clean destination first to avoid conflicts
+            rm -rf /mnt/models/spam-detector /mnt/models/triton-repo
+            mkdir -p /mnt/models
             
-            # Download using az storage
+            # Download using az storage - preserves directory structure
             az storage blob download-batch \
               --account-name "${AZURE_STORAGE_ACCOUNT_NAME}" \
               --account-key "${AZURE_STORAGE_ACCESS_KEY}" \
@@ -102,8 +104,15 @@ spec:
               --destination /mnt/models \
               --overwrite true
             
+            # Move from triton-repo/spam-detector to spam-detector (Triton expects model at /mnt/models/<model-name>)
+            if [ -d "/mnt/models/triton-repo/spam-detector" ]; then
+              mv /mnt/models/triton-repo/spam-detector /mnt/models/spam-detector
+              rm -rf /mnt/models/triton-repo
+            fi
+            
             echo "Model downloaded successfully"
-            ls -la /mnt/models/spam-detector/ || ls -la /mnt/models/
+            echo "Contents of /mnt/models:"
+            ls -laR /mnt/models/
         env:
           - name: AZURE_STORAGE_ACCOUNT_NAME
             valueFrom:
