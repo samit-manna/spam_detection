@@ -58,20 +58,28 @@ jobs:
         run: |
           pip install requests
 
-      - name: Get ACR Name from Secret
+      - name: Get ACR Name
         id: get-acr
         run: |
-          # Get ACR name from kserve namespace secret
-          ACR_NAME=$(kubectl get secret azure-storage-secret -n ${{ env.KSERVE_NAMESPACE }} \
-            -o jsonpath='{.data.ACR_NAME}' 2>/dev/null | base64 -d || echo "")
+          # Try to get ACR name from platform-config ConfigMap
+          ACR_NAME=$(kubectl get configmap platform-config -n ${{ env.KSERVE_NAMESPACE }} \
+            -o jsonpath='{.data.ACR_NAME}' 2>/dev/null || echo "")
           
-          # If not in secret, try to get from existing deployments
+          # Fallback: try github-runners namespace
           if [ -z "$ACR_NAME" ]; then
-            ACR_NAME=$(kubectl get deployment -n serving -o jsonpath='{.items[0].spec.template.spec.containers[0].image}' 2>/dev/null | cut -d'/' -f1 || echo "")
+            ACR_NAME=$(kubectl get configmap platform-config -n github-runners \
+              -o jsonpath='{.data.ACR_NAME}' 2>/dev/null || echo "")
+          fi
+          
+          # Fallback: try to get from existing deployments in serving namespace
+          if [ -z "$ACR_NAME" ]; then
+            ACR_NAME=$(kubectl get deployment -n serving \
+              -o jsonpath='{.items[0].spec.template.spec.containers[0].image}' 2>/dev/null | cut -d'/' -f1 || echo "")
           fi
           
           if [ -z "$ACR_NAME" ]; then
             echo "❌ Could not determine ACR name"
+            echo "   Please ensure platform-config ConfigMap exists or deployments are present"
             exit 1
           fi
           

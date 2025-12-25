@@ -388,6 +388,55 @@ resource "kubernetes_role_binding" "github_runner_kserve" {
 }
 
 # -----------------------------------------------------------------------------
+# Platform Configuration ConfigMap
+# Available to runners for accessing platform resources
+# -----------------------------------------------------------------------------
+
+resource "kubernetes_config_map" "platform_config" {
+  count = var.github_runners_enabled ? 1 : 0
+
+  metadata {
+    name      = "platform-config"
+    namespace = kubernetes_namespace.github_runners[0].metadata[0].name
+    labels = {
+      "app.kubernetes.io/name"       = "platform-config"
+      "app.kubernetes.io/component"  = "configuration"
+      "app.kubernetes.io/managed-by" = "terraform"
+    }
+  }
+
+  data = {
+    ACR_NAME                   = data.terraform_remote_state.aks.outputs.acr_login_server
+    STORAGE_ACCOUNT_NAME       = data.terraform_remote_state.aks.outputs.storage_account_name
+    MLFLOW_TRACKING_URI        = "http://mlflow-service.mlflow.svc.cluster.local:5000"
+    KSERVE_NAMESPACE           = "kserve"
+    MLFLOW_NAMESPACE           = "mlflow"
+    SERVING_NAMESPACE          = "serving"
+  }
+}
+
+# Also create in kserve namespace for convenience
+resource "kubernetes_config_map" "platform_config_kserve" {
+  count = var.github_runners_enabled ? 1 : 0
+
+  metadata {
+    name      = "platform-config"
+    namespace = "kserve"
+    labels = {
+      "app.kubernetes.io/name"       = "platform-config"
+      "app.kubernetes.io/component"  = "configuration"
+      "app.kubernetes.io/managed-by" = "terraform"
+    }
+  }
+
+  data = {
+    ACR_NAME                   = data.terraform_remote_state.aks.outputs.acr_login_server
+    STORAGE_ACCOUNT_NAME       = data.terraform_remote_state.aks.outputs.storage_account_name
+    MLFLOW_TRACKING_URI        = "http://mlflow-service.mlflow.svc.cluster.local:5000"
+  }
+}
+
+# -----------------------------------------------------------------------------
 # Outputs
 # -----------------------------------------------------------------------------
 
