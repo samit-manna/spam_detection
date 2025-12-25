@@ -305,6 +305,14 @@ resource "kubernetes_cluster_role_binding" "github_runner" {
     name      = kubernetes_service_account.github_runner[0].metadata[0].name
     namespace = kubernetes_namespace.github_runners[0].metadata[0].name
   }
+
+  # Grant access to all service accounts in github-runners namespace
+  # This covers ARC controller and dynamically created runner pods
+  subject {
+    kind      = "Group"
+    name      = "system:serviceaccounts:${kubernetes_namespace.github_runners[0].metadata[0].name}"
+    api_group = "rbac.authorization.k8s.io"
+  }
 }
 
 # -----------------------------------------------------------------------------
@@ -345,6 +353,13 @@ resource "kubernetes_role_binding" "github_runner_serving" {
     name      = kubernetes_service_account.github_runner[0].metadata[0].name
     namespace = kubernetes_namespace.github_runners[0].metadata[0].name
   }
+
+  # Grant access to all service accounts in github-runners namespace
+  subject {
+    kind      = "Group"
+    name      = "system:serviceaccounts:${kubernetes_namespace.github_runners[0].metadata[0].name}"
+    api_group = "rbac.authorization.k8s.io"
+  }
 }
 
 # -----------------------------------------------------------------------------
@@ -384,6 +399,14 @@ resource "kubernetes_role_binding" "github_runner_kserve" {
     kind      = "ServiceAccount"
     name      = kubernetes_service_account.github_runner[0].metadata[0].name
     namespace = kubernetes_namespace.github_runners[0].metadata[0].name
+  }
+
+  # Grant access to all service accounts in github-runners namespace
+  # This covers ARC controller and dynamically created runner pods
+  subject {
+    kind      = "Group"
+    name      = "system:serviceaccounts:${kubernetes_namespace.github_runners[0].metadata[0].name}"
+    api_group = "rbac.authorization.k8s.io"
   }
 }
 
