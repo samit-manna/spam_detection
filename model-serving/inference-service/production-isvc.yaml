@@ -74,7 +74,7 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 15
     
-    # Init container to download model from Azure Blob Storage
+    # Init container to download model from Azure Blob Storage (Data Lake Gen2)
     # Uses azure-storage-secret (created by Terraform) - no envsubst needed
     initContainers:
       - name: storage-initializer
@@ -84,31 +84,57 @@ spec:
           - -c
           - |
             set -e
-            echo "Downloading model from Azure Blob Storage..."
+            echo "Downloading model from Azure Data Lake Gen2..."
             
-            # Build storage URL from secret
-            STORAGE_URL="https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/models/triton-repo/spam-detector"
-            echo "Source: ${STORAGE_URL}"
+            echo "Account: ${AZURE_STORAGE_ACCOUNT_NAME}"
             echo "Destination: /mnt/models/spam-detector"
             
-            # Clean destination first to avoid conflicts
-            rm -rf /mnt/models/spam-detector /mnt/models/triton-repo
-            mkdir -p /mnt/models
+            # Clean destination
+            rm -rf /mnt/models/spam-detector
+            mkdir -p /mnt/models/spam-detector
             
-            # Download using az storage - preserves directory structure
-            az storage blob download-batch \
+            # List all blobs with their sizes
+            echo "Listing model files..."
+            az storage blob list \
               --account-name "${AZURE_STORAGE_ACCOUNT_NAME}" \
               --account-key "${AZURE_STORAGE_ACCESS_KEY}" \
-              --source models \
-              --pattern "triton-repo/spam-detector/*" \
-              --destination /mnt/models \
-              --overwrite true
+              --container-name models \
+              --prefix "triton-repo/spam-detector/" \
+              --query "[].{name:name, size:properties.contentLength}" -o tsv > /tmp/blobs.txt
             
-            # Move from triton-repo/spam-detector to spam-detector (Triton expects model at /mnt/models/<model-name>)
-            if [ -d "/mnt/models/triton-repo/spam-detector" ]; then
-              mv /mnt/models/triton-repo/spam-detector /mnt/models/spam-detector
-              rm -rf /mnt/models/triton-repo
-            fi
+            cat /tmp/blobs.txt
+            
+            # Download each file individually (skip directory markers - 0 byte blobs)
+            echo "Downloading files..."
+            while read blob size; do
+              # Skip directory markers (0 byte blobs or blobs ending with just a number that are 0 bytes)
+              if [[ "$size" == "0" ]] || [[ -z "$size" ]]; then
+                echo "Skipping directory marker (0 bytes): $blob"
+                continue
+              fi
+              
+              # Skip if it ends with / 
+              if [[ "$blob" == */ ]]; then
+                echo "Skipping directory: $blob"
+                continue
+              fi
+              
+              # Get the relative path (remove triton-repo/ prefix)
+              rel_path="${blob#triton-repo/}"
+              dest_dir="/mnt/models/$(dirname "$rel_path")"
+              
+              mkdir -p "$dest_dir"
+              
+              echo "Downloading: $blob ($size bytes) -> /mnt/models/$rel_path"
+              az storage blob download \
+                --account-name "${AZURE_STORAGE_ACCOUNT_NAME}" \
+                --account-key "${AZURE_STORAGE_ACCESS_KEY}" \
+                --container-name models \
+                --name "$blob" \
+                --file "/mnt/models/$rel_path" \
+                --no-progress \
+                -o none
+            done < /tmp/blobs.txt
             
             echo "Model downloaded successfully"
             echo "Contents of /mnt/models:"
