@@ -32,24 +32,96 @@ Production-grade model serving with KServe, featuring multi-environment support 
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+## Quick Start
+
+All operations are available via Make targets. Run from the `model-serving/` directory:
+
+### One Command Setup
+
+```bash
+# Run full setup: build → deploy gateway → deploy transformer → deploy feast → export model → deploy staging → test → deploy prod
+make all
+```
+
+### Step-by-Step Setup
+
+```bash
+# 1. Check prerequisites and build Docker images
+make check-env
+make build-images
+
+# 2. Deploy supporting services
+make deploy-api-gateway    # FastAPI gateway
+make deploy-transformer    # Feature transformer
+make deploy-feast          # Feast materialization cronjob
+
+# 3. Export model from MLflow and deploy
+make export-model          # Export to ONNX format
+make deploy-staging        # Deploy to staging
+
+# 4. Run integration tests
+make test
+
+# 5. Deploy to production (after staging validation)
+make deploy-prod
+```
+
+## Make Targets Reference
+
+| Target | Description |
+|--------|-------------|
+| **Quick Start** | |
+| `make all` | Full setup: build → deploy all → export → test → production |
+| `make setup` | Same as `make all` |
+| `make deploy-all` | Deploy all components (gateway, transformer, feast, staging, prod) |
+| `make help` | Show all available targets |
+| **Infrastructure** | |
+| `make infra` | Deploy serving infrastructure (namespaces, secrets) |
+| `make check-env` | Verify Terraform outputs and prerequisites |
+| **Build** | |
+| `make build-images` | Build and push all Docker images to ACR |
+| **Deployment** | |
+| `make deploy-api-gateway` | Deploy API gateway |
+| `make deploy-transformer` | Deploy feature transformer |
+| `make deploy-feast` | Deploy Feast materialization cronjob |
+| `make deploy-staging` | Deploy staging InferenceService |
+| `make deploy-prod` | Deploy production InferenceService |
+| **Model Lifecycle** | |
+| `make export-model` | Export model from MLflow to blob storage |
+| `make verify-onnx-conversion` | Validate ONNX conversion quality before deployment |
+| `make model-deploy` | Full deployment: export + staging + test + prod |
+| **Testing** | |
+| `make test` | Run integration tests via public ingress |
+| `make test-local-cluster` | Run tests with port-forwarding (debugging) |
+| `make materialize` | Trigger Feast feature materialization |
+| `make batch-predict` | Submit Ray batch prediction job |
+| `make clean` | Remove all deployed resources |
+| `make status` | Show status of all components |
+
 ## Multi-Environment Deployment
 
 ### Using X-Environment Header
 
 ```bash
+# Get the Istio ingress gateway IP
+export GATEWAY_URL=$(kubectl get svc istio-ingressgateway -n istio-system -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
 # Default: Staging environment
-curl -X POST http://$GATEWAY_URL/api/v1/predict \
+curl -X POST http://$GATEWAY_URL/predict \
+  -H "Host: api.ml-platform.example.com" \
   -H "Content-Type: application/json" \
   -d '{"email_content": "Hello world"}'
 
 # Explicit: Staging environment  
-curl -X POST http://$GATEWAY_URL/api/v1/predict \
+curl -X POST http://$GATEWAY_URL/predict \
+  -H "Host: api.ml-platform.example.com" \
   -H "Content-Type: application/json" \
   -H "X-Environment: staging" \
   -d '{"email_content": "Hello world"}'
 
 # Production environment
-curl -X POST http://$GATEWAY_URL/api/v1/predict \
+curl -X POST http://$GATEWAY_URL/predict \
+  -H "Host: api.ml-platform.example.com" \
   -H "Content-Type: application/json" \
   -H "X-Environment: production" \
   -d '{"email_content": "Hello world"}'
@@ -58,30 +130,15 @@ curl -X POST http://$GATEWAY_URL/api/v1/predict \
 ### Batch Prediction
 
 ```bash
-# Batch prediction to production
-curl -X POST http://$GATEWAY_URL/api/v1/batch-predict \
+# Submit batch prediction job via Ray
+make batch-predict
+
+# Or via API:
+curl -X POST http://$GATEWAY_URL/predict/batch \
+  -H "Host: api.ml-platform.example.com" \
   -H "Content-Type: application/json" \
   -H "X-Environment: production" \
   -d '{"emails": ["Email 1 content", "Email 2 content", "Email 3 content"]}'
-```
-
-## Quick Start
-
-```bash
-# 1. Deploy KServe InferenceServices
-kubectl apply -f kubernetes/serving/
-
-# 2. Deploy API Gateway
-kubectl apply -f api-gateway/deployment.yaml
-kubectl apply -f api-gateway/service.yaml
-
-# 3. Port-forward for testing
-kubectl port-forward svc/api-gateway -n serving 8080:8080
-
-# 4. Test inference
-curl -X POST http://localhost:8080/api/v1/predict \
-  -H "Content-Type: application/json" \
-  -d '{"email_content": "Win a free prize! Click here now!"}'
 ```
 
 ## Components
@@ -98,51 +155,48 @@ curl -X POST http://localhost:8080/api/v1/predict \
 
 ```
 model-serving/
-├── api-gateway/
-│   ├── app/
-│   │   ├── main.py              # FastAPI app
-│   │   ├── config.py            # Environment config
-│   │   ├── routers/predict.py   # Prediction endpoints
-│   │   └── services/kserve_client.py
-│   ├── deployment.yaml
-│   └── Dockerfile
-├── feature-transformer/         # Real-time feature extraction
-├── drift-detector/              # Drift monitoring
-├── baseline-generator/          # Baseline data generation
-└── kubernetes/
-    └── serving/                 # KServe manifests
+├── api-gateway/           # FastAPI gateway with env routing
+├── feature-transformer/   # Real-time feature extraction
+├── drift-detector/        # Drift monitoring (Evidently)
+├── inference-service/     # KServe InferenceService manifests
+│   ├── staging-isvc.yaml
+│   └── production-isvc.yaml
+├── scripts/               # Lifecycle management scripts
+│   └── model_lifecycle.py # Export/deploy/promote models
+├── tests/                 # Integration tests
+└── Makefile               # All deployment targets
 ```
 
 ## API Endpoints
 
 | Endpoint | Method | Headers | Description |
 |----------|--------|---------|-------------|
-| `/api/v1/predict` | POST | X-Environment (optional) | Single prediction |
-| `/api/v1/batch-predict` | POST | X-Environment (optional) | Batch predictions |
+| `/predict` | POST | X-Environment (optional) | Single prediction |
+| `/predict/batch` | POST | X-Environment (optional) | Batch inference (Ray) |
 | `/health` | GET | - | Health check |
 | `/ready` | GET | - | Readiness check |
 
-## Scaling Configuration
+## Testing
 
-```yaml
-# HPA scales based on CPU utilization
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-spec:
-  minReplicas: 2
-  maxReplicas: 10
-  metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      targetAverageUtilization: 70
+```bash
+# Run full integration tests (uses public ingress)
+make test
+
+# Run tests with port-forwarding (for debugging)
+make test-local-cluster
+
+# Run local tests with docker-compose
+make test-local
 ```
 
 ## Monitoring
 
 ```bash
-# Check pod scaling
-kubectl get hpa -n serving
+# Check component status
+make status
+
+# View pod scaling
+kubectl get hpa -n serving -n kserve
 
 # View inference logs
 kubectl logs -l app=api-gateway -n serving --tail=50
@@ -151,21 +205,38 @@ kubectl logs -l app=api-gateway -n serving --tail=50
 kubectl logs -l app=drift-detector -n monitoring --tail=50
 ```
 
-## Verification
+## Model Lifecycle Management
+
+The `scripts/model_lifecycle.py` script provides programmatic model lifecycle management:
 
 ```bash
-# Check all components running
-kubectl get pods -n serving
-kubectl get pods -n kserve
+# Export model from MLflow to blob storage
+python scripts/model_lifecycle.py export \
+  --model-name spam-detection-model \
+  --model-stage Production
 
-# Verify InferenceServices
-kubectl get inferenceservice -n kserve
+# Deploy to staging
+python scripts/model_lifecycle.py deploy \
+  --environment staging
 
-# Test environment routing
-export GATEWAY_URL=localhost:8080
-curl -s http://$GATEWAY_URL/health
-curl -X POST http://$GATEWAY_URL/api/v1/predict \
-  -H "Content-Type: application/json" \
-  -H "X-Environment: production" \
-  -d '{"email_content": "Test email"}'
+# Run smoke tests
+python scripts/model_lifecycle.py smoke-test \
+  --environment staging
+
+# Promote to production (after successful smoke tests)
+python scripts/model_lifecycle.py promote
 ```
+
+This script is used by the GitHub Actions workflow for automated deployments.
+
+## CI/CD Integration
+
+Model deployments are automated via GitHub Actions:
+
+1. **Trigger**: Push to `model-serving/**` or manual workflow dispatch
+2. **Build**: Docker images built and pushed to ACR
+3. **Deploy Staging**: InferenceService deployed to staging
+4. **Smoke Tests**: Automated validation of staging deployment
+5. **Deploy Production**: Auto-promotion after successful smoke tests
+
+See `.github/workflows/model-deploy.yaml` for the full workflow.

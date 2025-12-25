@@ -1,6 +1,7 @@
 # Model Serving Platform Makefile
 #
 # Usage:
+#   make all               # Run full setup: build → export → deploy → test
 #   make infra             # Deploy serving infrastructure via Terraform
 #   make build-images      # Build and push all Docker images to ACR
 #   make deploy-staging    # Deploy to staging
@@ -11,7 +12,7 @@
 # Note: Infrastructure (KServe, Istio, etc.) is managed by Terraform in ../terraform/serving-infra
 # Note: ACR, Storage, and Redis details are automatically fetched from Terraform outputs
 
-.PHONY: all infra build-images deploy-staging deploy-prod test clean help
+.PHONY: all infra build-images deploy-staging deploy-prod test clean help setup deploy-all
 
 # Configuration
 TERRAFORM_BASE_DIR = ../terraform/base-infra
@@ -32,9 +33,59 @@ YELLOW = \033[1;33m
 RED = \033[0;31m
 NC = \033[0m
 
+# =============================================================================
+# Full Setup Target - Runs all steps in sequence
+# =============================================================================
+
+all: setup
+	@echo "$(GREEN)========================================$(NC)"
+	@echo "$(GREEN)Full setup complete!$(NC)"
+	@echo "$(GREEN)========================================$(NC)"
+
+setup:
+	@echo "$(YELLOW)========================================$(NC)"
+	@echo "$(YELLOW)Starting Full Model Serving Setup$(NC)"
+	@echo "$(YELLOW)========================================$(NC)"
+	@echo ""
+	@echo "$(YELLOW)Step 1/9: Checking prerequisites...$(NC)"
+	@$(MAKE) check-env
+	@echo ""
+	@echo "$(YELLOW)Step 2/9: Building Docker images...$(NC)"
+	@$(MAKE) build-images
+	@echo ""
+	@echo "$(YELLOW)Step 3/9: Deploying API Gateway...$(NC)"
+	@$(MAKE) deploy-api-gateway
+	@echo ""
+	@echo "$(YELLOW)Step 4/9: Deploying Feature Transformer...$(NC)"
+	@$(MAKE) deploy-transformer
+	@echo ""
+	@echo "$(YELLOW)Step 5/9: Deploying Feast materialization...$(NC)"
+	@$(MAKE) deploy-feast
+	@echo ""
+	@echo "$(YELLOW)Step 6/9: Exporting model from MLflow...$(NC)"
+	@$(MAKE) export-model
+	@echo ""
+	@echo "$(YELLOW)Step 7/9: Deploying to staging...$(NC)"
+	@$(MAKE) deploy-staging
+	@echo ""
+	@echo "$(YELLOW)Step 8/9: Running smoke tests...$(NC)"
+	@$(MAKE) test
+	@echo ""
+	@echo "$(YELLOW)Step 9/9: Deploying to production...$(NC)"
+	@$(MAKE) deploy-prod
+	@echo ""
+
+deploy-all: deploy-api-gateway deploy-transformer deploy-feast deploy-staging deploy-prod
+	@echo "$(GREEN)All components deployed$(NC)"
+
 # Help target
 help:
 	@echo "Model Serving Platform Commands"
+	@echo ""
+	@echo "Quick Start:"
+	@echo "  make all               Run full setup (build → export → deploy → test)"
+	@echo "  make setup             Same as 'make all'"
+	@echo "  make deploy-all        Deploy all components (gateway, transformer, staging, prod)"
 	@echo ""
 	@echo "Infrastructure (Terraform):"
 	@echo "  make infra             Deploy serving infra (KServe, Istio, Knative)"

@@ -15,8 +15,17 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 BOLD='\033[1m'
 
-# Configuration
-API_URL="${API_URL:-http://localhost:8000}"
+# Configuration - Try to get public IP first, fallback to localhost
+GATEWAY_IP=$(kubectl get svc istio-ingressgateway -n istio-system -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+if [ -n "$GATEWAY_IP" ]; then
+    API_URL="${API_URL:-http://$GATEWAY_IP}"
+    HOST_HEADER="api.ml-platform.example.com"
+    USE_PUBLIC_IP=true
+else
+    API_URL="${API_URL:-http://localhost:8000}"
+    HOST_HEADER=""
+    USE_PUBLIC_IP=false
+fi
 API_KEY="${API_KEY:-test-operator-key}"
 
 echo -e "${BOLD}${BLUE}"
@@ -25,6 +34,36 @@ echo "║         ML MODEL LIFECYCLE MANAGEMENT PLATFORM                ║"
 echo "║                    End-to-End Demo                            ║"
 echo "╚═══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
+
+if [ "$USE_PUBLIC_IP" = true ]; then
+    echo -e "${GREEN}Using public ingress gateway: $GATEWAY_IP${NC}"
+else
+    echo -e "${YELLOW}No public IP found, using localhost (port-forward required)${NC}"
+fi
+echo ""
+
+# Helper function for curl with optional Host header
+api_call() {
+    local method=$1
+    local endpoint=$2
+    local data=$3
+    local extra_headers=$4
+    
+    if [ "$USE_PUBLIC_IP" = true ]; then
+        curl -s -X "$method" "$API_URL$endpoint" \
+            -H "Host: $HOST_HEADER" \
+            -H "Content-Type: application/json" \
+            -H "X-API-Key: $API_KEY" \
+            $extra_headers \
+            -d "$data" 2>/dev/null
+    else
+        curl -s -X "$method" "$API_URL$endpoint" \
+            -H "Content-Type: application/json" \
+            -H "X-API-Key: $API_KEY" \
+            $extra_headers \
+            -d "$data" 2>/dev/null
+    fi
+}
 
 # Helper function
 section() {
@@ -109,40 +148,45 @@ info "Testing predictions via API Gateway"
 echo ""
 
 # Test if API is accessible
-if ! curl -s --max-time 5 "$API_URL/health" > /dev/null 2>&1; then
-    echo -e "${YELLOW}Starting port-forward to API Gateway...${NC}"
-    kubectl port-forward svc/api-gateway -n serving 8000:80 &
-    PF_PID=$!
-    sleep 3
+health_check() {
+    if [ "$USE_PUBLIC_IP" = true ]; then
+        curl -s --max-time 5 "$API_URL/health" -H "Host: $HOST_HEADER" > /dev/null 2>&1
+    else
+        curl -s --max-time 5 "$API_URL/health" > /dev/null 2>&1
+    fi
+}
+
+if ! health_check; then
+    if [ "$USE_PUBLIC_IP" = false ]; then
+        echo -e "${YELLOW}Starting port-forward to API Gateway...${NC}"
+        kubectl port-forward svc/api-gateway -n serving 8000:80 &
+        PF_PID=$!
+        sleep 3
+    else
+        echo -e "${RED}API Gateway not responding at $API_URL${NC}"
+    fi
 fi
 
 echo -e "${YELLOW}Test 1: Spam Email (Staging)${NC}"
 echo '  Request: {"subject": "WINNER! Claim your $1,000,000 prize NOW!!!", ...}'
-RESPONSE=$(curl -s -X POST "$API_URL/predict" \
-    -H "Content-Type: application/json" \
-    -H "X-API-Key: $API_KEY" \
-    -d '{
+RESPONSE=$(api_call "POST" "/predict" '{
         "email_id": "demo-1",
         "subject": "WINNER! Claim your $1,000,000 prize NOW!!!",
         "body": "Congratulations! You have been selected to receive $1,000,000. Click here immediately to claim your prize. This is not a joke! Act now before it expires!!!",
         "sender": "winner@lottery-claims.com"
-    }' 2>/dev/null)
+    }')
 echo "  Response:"
 echo "$RESPONSE" | jq -r '  "    Prediction: \(.prediction)\n    Probability: \(.spam_probability)\n    Environment: \(.model_stage)\n    Latency: \(.latency_ms)ms"' 2>/dev/null || echo "    (API not accessible)"
 
 echo ""
 echo -e "${YELLOW}Test 2: Normal Email (Production)${NC}"
 echo '  Request: {"subject": "Q4 Budget Review Meeting", ...}'
-RESPONSE=$(curl -s -X POST "$API_URL/predict" \
-    -H "Content-Type: application/json" \
-    -H "X-API-Key: $API_KEY" \
-    -H "X-Environment: production" \
-    -d '{
+RESPONSE=$(api_call "POST" "/predict" '{
         "email_id": "demo-2",
         "subject": "Q4 Budget Review Meeting",
         "body": "Hi team, Please find attached the Q4 budget review materials. Let me know if you have any questions before our meeting tomorrow. Best regards, John",
         "sender": "john.smith@company.com"
-    }' 2>/dev/null)
+    }' '-H "X-Environment: production"')
 echo "  Response:"
 echo "$RESPONSE" | jq -r '  "    Prediction: \(.prediction)\n    Probability: \(.spam_probability)\n    Environment: \(.model_stage)\n    Latency: \(.latency_ms)ms"' 2>/dev/null || echo "    (API not accessible)"
 
@@ -164,16 +208,13 @@ done
 
 echo ""
 echo -e "${YELLOW}Batch Sync Test (3 emails):${NC}"
-RESPONSE=$(curl -s -X POST "$API_URL/predict/batch-sync" \
-    -H "Content-Type: application/json" \
-    -H "X-API-Key: $API_KEY" \
-    -d '{
+RESPONSE=$(api_call "POST" "/predict/batch" '{
         "emails": [
             {"email_id": "batch-1", "subject": "Meeting tomorrow", "body": "Hi, can we meet at 3pm?", "sender": "alice@company.com"},
             {"email_id": "batch-2", "subject": "FREE iPhone!!!", "body": "Click now to win!", "sender": "promo@spam.com"},
             {"email_id": "batch-3", "subject": "Project update", "body": "Attached is the latest status report.", "sender": "pm@company.com"}
         ]
-    }' 2>/dev/null)
+    }')
 echo "  Results:"
 echo "$RESPONSE" | jq -r '.predictions[] | "    \(.email_id): \(.prediction) (\(.spam_probability | . * 100 | round)% spam)"' 2>/dev/null || echo "    (API not accessible)"
 
@@ -205,7 +246,11 @@ done
 echo ""
 echo -e "${YELLOW}Latest Drift Metrics:${NC}"
 # Try to get drift metrics from API
-DRIFT=$(curl -s "$API_URL/metrics/drift" -H "X-API-Key: $API_KEY" 2>/dev/null)
+if [ "$USE_PUBLIC_IP" = true ]; then
+    DRIFT=$(curl -s "$API_URL/metrics/drift" -H "Host: $HOST_HEADER" -H "X-API-Key: $API_KEY" 2>/dev/null)
+else
+    DRIFT=$(curl -s "$API_URL/metrics/drift" -H "X-API-Key: $API_KEY" 2>/dev/null)
+fi
 if echo "$DRIFT" | jq -e '.drift_score' > /dev/null 2>&1; then
     echo "$DRIFT" | jq -r '"    Drift Detected: \(.drift_detected)\n    Drift Score: \(.drift_score)%\n    Features Drifted: \(.features_drifted | length)\n    Last Checked: \(.last_checked)"' 2>/dev/null
 else
@@ -244,9 +289,16 @@ echo -e "${YELLOW}Authentication:${NC}"
 echo "  API Key required for all endpoints (X-API-Key header)"
 echo ""
 echo -e "${YELLOW}Test without API Key:${NC}"
-RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/predict" \
-    -H "Content-Type: application/json" \
-    -d '{"email_id": "1", "subject": "test", "body": "test", "sender": "a@b.com"}' 2>/dev/null)
+if [ "$USE_PUBLIC_IP" = true ]; then
+    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/predict" \
+        -H "Host: $HOST_HEADER" \
+        -H "Content-Type: application/json" \
+        -d '{"email_id": "1", "subject": "test", "body": "test", "sender": "a@b.com"}' 2>/dev/null)
+else
+    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/predict" \
+        -H "Content-Type: application/json" \
+        -d '{"email_id": "1", "subject": "test", "body": "test", "sender": "a@b.com"}' 2>/dev/null)
+fi
 echo "  Response: HTTP $RESPONSE (expected: 401 Unauthorized)"
 
 check "API authentication enforced"
