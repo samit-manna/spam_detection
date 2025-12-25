@@ -706,6 +706,7 @@ def smoke_test(
     
     result = subprocess.run([
         "kubectl", "run", pod_name,
+        "-n", namespace,
         "--image=curlimages/curl:latest",
         "--restart=Never",
         "--rm", "-i",
@@ -726,11 +727,12 @@ def smoke_test(
     
     result = subprocess.run([
         "kubectl", "run", pod_name,
+        "-n", namespace,
         "--image=curlimages/curl:latest",
         "--restart=Never",
         "--rm", "-i",
         "--command", "--",
-        "curl", "-sf", f"http://{predictor_svc}/v2/models/spam_detector"
+        "curl", "-sf", f"http://{predictor_svc}/v2/models/spam-detector"
     ], capture_output=True, text=True, timeout=60)
     
     if result.returncode == 0:
