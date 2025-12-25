@@ -65,8 +65,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install requests
+          sudo apt-get update && sudo apt-get install -y python3-pip
+          pip3 install requests
 
       - name: Get Model in Staging Stage
         id: model-info
@@ -158,8 +158,8 @@ jobs:
           curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
           
           # Install Python dependencies
-          python3 -m pip install --upgrade pip
-          python3 -m pip install requests mlflow xgboost onnx onnxmltools skl2onnx numpy pandas
+          sudo apt-get update && sudo apt-get install -y python3-pip
+          pip3 install requests mlflow xgboost onnx onnxmltools skl2onnx numpy pandas
 
       - name: Azure Login
         run: |
@@ -238,8 +238,8 @@ jobs:
           curl -LO "https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
-          python3 -m pip install --upgrade pip
-          python3 -m pip install requests numpy
+          sudo apt-get update && sudo apt-get install -y python3-pip
+          pip3 install requests numpy
 
       - name: Run Smoke Tests
         id: smoke-test
@@ -327,8 +327,8 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install requests
+          sudo apt-get update && sudo apt-get install -y python3-pip
+          pip3 install requests
 
       - name: Get Model in Production Stage
         id: model-info
@@ -388,8 +388,8 @@ jobs:
           
           curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
           
-          python3 -m pip install --upgrade pip
-          python3 -m pip install requests mlflow xgboost onnx onnxmltools skl2onnx numpy pandas
+          sudo apt-get update && sudo apt-get install -y python3-pip
+          pip3 install requests mlflow xgboost onnx onnxmltools skl2onnx numpy pandas
 
       - name: Azure Login
         run: |
