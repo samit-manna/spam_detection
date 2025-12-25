@@ -359,54 +359,30 @@ model-rollback:
 	@echo "$(YELLOW)  To deploy the rolled-back model, run: make model-deploy STAGE=$(STAGE)$(NC)"
 	@echo "$(YELLOW)  Or use: make model-rollback-deploy STAGE=$(STAGE) for both in one step$(NC)"
 
-# Full model deployment (export + deploy + restart)
+# Full model deployment (export + deploy)
 # Usage: make model-deploy STAGE=Staging
 model-deploy: get-terraform-outputs
 	@if [ -z "$(STAGE)" ]; then echo "$(RED)Error: STAGE is required. Usage: make model-deploy STAGE=Staging$(NC)"; exit 1; fi
 	@echo "$(YELLOW)Deploying model to $(STAGE)...$(NC)"
 	@echo ""
 	@echo "Step 1: Exporting model from MLflow..."
-	$(MAKE) export-model MODEL_STAGE=$(STAGE) IMAGE_TAG=$(IMAGE_TAG)
+	@python3 scripts/model_lifecycle.py export \
+		--model-name $(MODEL_NAME) \
+		--stage $(STAGE) \
+		--acr-name $(ACR_NAME) \
+		--image-tag $(IMAGE_TAG)
 	@echo ""
 	@echo "Step 2: Deploying to KServe..."
-	@if [ "$(STAGE)" = "Staging" ]; then \
-		$(MAKE) deploy-staging; \
-	else \
-		$(MAKE) deploy-prod; \
-	fi
-	@echo ""
-	@echo "Step 3: Restarting inference pods..."
-	@if [ "$(STAGE)" = "Staging" ]; then \
-		kubectl delete pod -n $(NS_KSERVE) -l serving.kserve.io/inferenceservice=spam-detector-staging; \
-	else \
-		kubectl delete pod -n $(NS_KSERVE) -l serving.kserve.io/inferenceservice=spam-detector; \
-	fi
+	@python3 scripts/model_lifecycle.py deploy \
+		--model-name $(MODEL_NAME) \
+		--stage $(STAGE)
 	@echo ""
 	@echo "$(GREEN)✓ Model deployment complete!$(NC)"
 
 # Quick rollback and deploy (single command)
 # Usage: make model-rollback-deploy STAGE=Staging
-model-rollback-deploy: get-terraform-outputs model-rollback
+model-rollback-deploy: model-rollback
 	@echo ""
-	@echo "$(YELLOW)Cleaning up old Triton model versions from blob storage...$(NC)"
-	@# Keep only the version that matches the current MLflow staging version
-	@# First, get the current MLflow version for this stage
-	$(eval CURRENT_VERSION := $(shell python3 -c "import requests; r=requests.get('$(MLFLOW_URI)/api/2.0/mlflow/model-versions/search', params={'filter': \"name='$(MODEL_NAME)'\"}); versions=[v for v in r.json().get('model_versions', []) if v.get('current_stage')=='$(STAGE)']; print(versions[0]['version'] if versions else '1')"))
-	@echo "  Current $(STAGE) version: $(CURRENT_VERSION)"
-	@# Delete all version directories except the current one
-	@for v in $$(az storage blob list --account-name $(AZURE_STORAGE_ACCOUNT_NAME) --container-name models --prefix "triton-repo/$(MODEL_NAME)/" --query "[?contains(name, '/model.onnx')].name" -o tsv 2>/dev/null | sed 's|triton-repo/$(MODEL_NAME)/||' | sed 's|/model.onnx||' | sort -u); do \
-		if [ "$$v" != "$(CURRENT_VERSION)" ] && [ -n "$$v" ]; then \
-			echo "  Deleting old version: $$v"; \
-			az storage blob delete-batch --account-name $(AZURE_STORAGE_ACCOUNT_NAME) --source models --pattern "triton-repo/$(MODEL_NAME)/$$v/*" 2>/dev/null || true; \
-		fi; \
-	done
-	@echo "$(GREEN)✓ Old model versions cleaned up$(NC)"
-	@echo ""
-	@echo ""
-	@echo "Step 3: Restarting inference pods..."
-	@if [ "$(STAGE)" = "Staging" ]; then \
-		kubectl delete pod -n $(NS_KSERVE) -l serving.kserve.io/inferenceservice=spam-detector-staging; \
-	else \
-		kubectl delete pod -n $(NS_KSERVE) -l serving.kserve.io/inferenceservice=spam-detector; \
-	fi
+	@echo "$(YELLOW)Deploying rolled-back model...$(NC)"
+	$(MAKE) model-deploy STAGE=$(STAGE)
 	@echo "$(GREEN)✓ Rollback and deployment complete!$(NC)"
