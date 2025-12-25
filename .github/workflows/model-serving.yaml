@@ -175,6 +175,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+          kubectl version --client
+
       - name: Deploy Feature Transformer
         run: |
           kubectl set image deployment/feature-transformer \
