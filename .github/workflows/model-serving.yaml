@@ -80,83 +80,83 @@ jobs:
           echo "tag=v20251225133814-fc5a847" >> $GITHUB_OUTPUT
           echo "Image tag: ${TAG}"
 
-      # - name: Wait for Docker daemon
-      #   run: |
-      #     echo "Waiting for Docker daemon to be ready..."
-      #     timeout 60 sh -c 'until docker info > /dev/null 2>&1; do sleep 2; done'
-      #     docker info
+      - name: Wait for Docker daemon
+        run: |
+          echo "Waiting for Docker daemon to be ready..."
+          timeout 60 sh -c 'until docker info > /dev/null 2>&1; do sleep 2; done'
+          docker info
 
-      # - name: Install Azure CLI
-      #   run: |
-      #     curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+      - name: Install Azure CLI
+        run: |
+          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
 
-      # - name: Login to ACR via Azure CLI
-      #   run: |
-      #     # Use managed identity from AKS node - specify kubelet identity client ID
-      #     az login --identity --client-id 9ae25c5e-14d8-4384-9c87-a57fecb27335
-      #     az acr login --name $(echo ${{ env.ACR_NAME }} | cut -d'.' -f1)
+      - name: Login to ACR via Azure CLI
+        run: |
+          # Use managed identity from AKS node - specify kubelet identity client ID
+          az login --identity --client-id 9ae25c5e-14d8-4384-9c87-a57fecb27335
+          az acr login --name $(echo ${{ env.ACR_NAME }} | cut -d'.' -f1)
 
-      # - name: Build API Gateway
-      #   working-directory: model-serving
-      #   run: |
-      #     docker build \
-      #       --platform linux/amd64 \
-      #       -t ${{ env.ACR_NAME }}/${{ env.API_GATEWAY_IMAGE }}:${{ steps.set-tag.outputs.tag }} \
-      #       -t ${{ env.ACR_NAME }}/${{ env.API_GATEWAY_IMAGE }}:latest \
-      #       -f api-gateway/Dockerfile \
-      #       api-gateway/
+      - name: Build API Gateway
+        working-directory: model-serving
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            -t ${{ env.ACR_NAME }}/${{ env.API_GATEWAY_IMAGE }}:${{ steps.set-tag.outputs.tag }} \
+            -t ${{ env.ACR_NAME }}/${{ env.API_GATEWAY_IMAGE }}:latest \
+            -f api-gateway/Dockerfile \
+            api-gateway/
 
-      # - name: Build Feature Transformer
-      #   working-directory: model-serving
-      #   run: |
-      #     docker build \
-      #       --platform linux/amd64 \
-      #       -t ${{ env.ACR_NAME }}/${{ env.FEATURE_TRANSFORMER_IMAGE }}:${{ steps.set-tag.outputs.tag }} \
-      #       -t ${{ env.ACR_NAME }}/${{ env.FEATURE_TRANSFORMER_IMAGE }}:latest \
-      #       -f feature-transformer/Dockerfile \
-      #       feature-transformer/
+      - name: Build Feature Transformer
+        working-directory: model-serving
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            -t ${{ env.ACR_NAME }}/${{ env.FEATURE_TRANSFORMER_IMAGE }}:${{ steps.set-tag.outputs.tag }} \
+            -t ${{ env.ACR_NAME }}/${{ env.FEATURE_TRANSFORMER_IMAGE }}:latest \
+            -f feature-transformer/Dockerfile \
+            feature-transformer/
 
-      # - name: Build Model Export
-      #   working-directory: model-serving
-      #   run: |
-      #     docker build \
-      #       --platform linux/amd64 \
-      #       -t ${{ env.ACR_NAME }}/${{ env.MODEL_EXPORT_IMAGE }}:${{ steps.set-tag.outputs.tag }} \
-      #       -t ${{ env.ACR_NAME }}/${{ env.MODEL_EXPORT_IMAGE }}:latest \
-      #       -f model-export/Dockerfile \
-      #       model-export/
+      - name: Build Model Export
+        working-directory: model-serving
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            -t ${{ env.ACR_NAME }}/${{ env.MODEL_EXPORT_IMAGE }}:${{ steps.set-tag.outputs.tag }} \
+            -t ${{ env.ACR_NAME }}/${{ env.MODEL_EXPORT_IMAGE }}:latest \
+            -f model-export/Dockerfile \
+            model-export/
 
-      # - name: Build Batch Inference
-      #   working-directory: model-serving
-      #   run: |
-      #     docker build \
-      #       --platform linux/amd64 \
-      #       -t ${{ env.ACR_NAME }}/${{ env.BATCH_INFERENCE_IMAGE }}:${{ steps.set-tag.outputs.tag }} \
-      #       -t ${{ env.ACR_NAME }}/${{ env.BATCH_INFERENCE_IMAGE }}:latest \
-      #       -f batch-inference/Dockerfile \
-      #       batch-inference/
+      - name: Build Batch Inference
+        working-directory: model-serving
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            -t ${{ env.ACR_NAME }}/${{ env.BATCH_INFERENCE_IMAGE }}:${{ steps.set-tag.outputs.tag }} \
+            -t ${{ env.ACR_NAME }}/${{ env.BATCH_INFERENCE_IMAGE }}:latest \
+            -f batch-inference/Dockerfile \
+            batch-inference/
 
-      # - name: Push images
-      #   run: |
-      #     docker push ${{ env.ACR_NAME }}/${{ env.API_GATEWAY_IMAGE }}:${{ steps.set-tag.outputs.tag }}
-      #     docker push ${{ env.ACR_NAME }}/${{ env.API_GATEWAY_IMAGE }}:latest
-      #     docker push ${{ env.ACR_NAME }}/${{ env.FEATURE_TRANSFORMER_IMAGE }}:${{ steps.set-tag.outputs.tag }}
-      #     docker push ${{ env.ACR_NAME }}/${{ env.FEATURE_TRANSFORMER_IMAGE }}:latest
-      #     docker push ${{ env.ACR_NAME }}/${{ env.MODEL_EXPORT_IMAGE }}:${{ steps.set-tag.outputs.tag }}
-      #     docker push ${{ env.ACR_NAME }}/${{ env.MODEL_EXPORT_IMAGE }}:latest
-      #     docker push ${{ env.ACR_NAME }}/${{ env.BATCH_INFERENCE_IMAGE }}:${{ steps.set-tag.outputs.tag }}
-      #     docker push ${{ env.ACR_NAME }}/${{ env.BATCH_INFERENCE_IMAGE }}:latest
+      - name: Push images
+        run: |
+          docker push ${{ env.ACR_NAME }}/${{ env.API_GATEWAY_IMAGE }}:${{ steps.set-tag.outputs.tag }}
+          docker push ${{ env.ACR_NAME }}/${{ env.API_GATEWAY_IMAGE }}:latest
+          docker push ${{ env.ACR_NAME }}/${{ env.FEATURE_TRANSFORMER_IMAGE }}:${{ steps.set-tag.outputs.tag }}
+          docker push ${{ env.ACR_NAME }}/${{ env.FEATURE_TRANSFORMER_IMAGE }}:latest
+          docker push ${{ env.ACR_NAME }}/${{ env.MODEL_EXPORT_IMAGE }}:${{ steps.set-tag.outputs.tag }}
+          docker push ${{ env.ACR_NAME }}/${{ env.MODEL_EXPORT_IMAGE }}:latest
+          docker push ${{ env.ACR_NAME }}/${{ env.BATCH_INFERENCE_IMAGE }}:${{ steps.set-tag.outputs.tag }}
+          docker push ${{ env.ACR_NAME }}/${{ env.BATCH_INFERENCE_IMAGE }}:latest
 
-      # - name: Summary
-      #   run: |
-      #     echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
-      #     echo "" >> $GITHUB_STEP_SUMMARY
-      #     echo "| Image | Tag |" >> $GITHUB_STEP_SUMMARY
-      #     echo "|-------|-----|" >> $GITHUB_STEP_SUMMARY
-      #     echo "| api-gateway | ${{ steps.set-tag.outputs.tag }} |" >> $GITHUB_STEP_SUMMARY
-      #     echo "| feature-transformer | ${{ steps.set-tag.outputs.tag }} |" >> $GITHUB_STEP_SUMMARY
-      #     echo "| model-export | ${{ steps.set-tag.outputs.tag }} |" >> $GITHUB_STEP_SUMMARY
-      #     echo "| batch-inference | ${{ steps.set-tag.outputs.tag }} |" >> $GITHUB_STEP_SUMMARY
+      - name: Summary
+        run: |
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | Tag |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-----|" >> $GITHUB_STEP_SUMMARY
+          echo "| api-gateway | ${{ steps.set-tag.outputs.tag }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| feature-transformer | ${{ steps.set-tag.outputs.tag }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| model-export | ${{ steps.set-tag.outputs.tag }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| batch-inference | ${{ steps.set-tag.outputs.tag }} |" >> $GITHUB_STEP_SUMMARY
 
   # ===========================================================================
   # Deploy to Staging
@@ -214,9 +214,9 @@ jobs:
           kubectl get pods -n ${{ env.SERVING_NAMESPACE }} -l "app in (api-gateway,feature-transformer)" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
-  # # ===========================================================================
-  # # Integration Tests
-  # # ===========================================================================
+  # ===========================================================================
+  # Integration Tests
+  # ===========================================================================
   integration-tests:
     name: Integration Tests
     runs-on: ml-platform-runners
@@ -250,95 +250,125 @@ jobs:
           echo "Ingress IP: ${INGRESS_IP}"
 
       - name: Run Integration Tests
+        id: tests
         working-directory: model-serving
         run: |
+          # Run tests and capture output
           python tests/integration_test.py \
             --api-gateway-url http://${{ steps.ingress.outputs.ip }} \
             --host-header "api.ml-platform.example.com" \
             --api-key "test-operator-key" \
-            --model-name spam-detector
+            --model-name spam-detector \
+            2>&1 | tee test_output.txt
+          
+          # Parse results for summary
+          echo "output_file=test_output.txt" >> $GITHUB_OUTPUT
 
       - name: Test Summary
         if: always()
+        working-directory: model-serving
         run: |
-          echo "## Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "## 🧪 Integration Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-
-  # # ===========================================================================
-  # # Deploy to Production (Manual Approval Required)
-  # # ===========================================================================
-  # deploy-production:
-  #   name: Deploy to Production
-  #   runs-on: ml-platform-runners
-  #   needs: [build, integration-tests]
-  #   if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_environment == 'production'
-    
-  #   environment:
-  #     name: production
-  #     url: http://api.ml-platform.example.com
-    
-  #   steps:
-  #     - name: Checkout code
-  #       uses: actions/checkout@v4
-
-  #     - name: Deploy Feature Transformer
-  #       run: |
-  #         kubectl set image deployment/feature-transformer \
-  #           feature-transformer=${{ env.ACR_NAME }}/${{ env.FEATURE_TRANSFORMER_IMAGE }}:${{ needs.build.outputs.image_tag }} \
-  #           -n ${{ env.SERVING_NAMESPACE }}
-  #         kubectl rollout status deployment/feature-transformer -n ${{ env.SERVING_NAMESPACE }} --timeout=300s
-
-  #     - name: Deploy API Gateway
-  #       working-directory: model-serving
-  #       run: |
-  #         export ACR_NAME=${{ env.ACR_NAME }}
-  #         export IMAGE_TAG=${{ needs.build.outputs.image_tag }}
-  #         envsubst < api-gateway/deployment.yaml | kubectl apply -f -
-  #         kubectl apply -f api-gateway/istio.yaml
-  #         kubectl rollout status deployment/api-gateway -n ${{ env.SERVING_NAMESPACE }} --timeout=300s
-
-  #     - name: Promote KServe Model to Production
-  #       run: |
-  #         # Update production inference service traffic
-  #         kubectl patch inferenceservice spam-detector -n ${{ env.KSERVE_NAMESPACE }} \
-  #           --type='merge' \
-  #           -p '{"spec":{"predictor":{"canaryTrafficPercent":0}}}'
+          echo "**Status:** ${{ job.status == 'success' && '✅ PASSED' || '❌ FAILED' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image Tag:** \`${{ needs.build.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Ingress IP:** \`${{ steps.ingress.outputs.ip }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           
-  #         echo "Production deployment complete!"
+          # Extract test summary from output
+          echo "### Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          if [ -f test_output.txt ]; then
+            # Extract the summary section
+            grep -A 20 "Test Summary" test_output.txt | head -25 >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "Could not parse test summary"
+          fi
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Bias test results if available
+          echo "### Bias Test Results" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          if [ -f test_output.txt ]; then
+            grep -A 15 "Bias Test" test_output.txt | head -20 >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "Bias tests not run or not found"
+          fi
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Accuracy metrics if available
+          echo "### Metrics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f test_output.txt ]; then
+            # Extract accuracy info
+            ACCURACY=$(grep -oP "Accuracy:.*?[\d.]+%" test_output.txt | head -1 || echo "N/A")
+            FP_RATE=$(grep -oP "False Positive.*?[\d.]+%" test_output.txt | head -1 || echo "N/A")
+            FN_RATE=$(grep -oP "False Negative.*?[\d.]+%" test_output.txt | head -1 || echo "N/A")
+            
+            echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Overall Accuracy | ${ACCURACY:-N/A} |" >> $GITHUB_STEP_SUMMARY
+            echo "| False Positive Rate | ${FP_RATE:-N/A} |" >> $GITHUB_STEP_SUMMARY
+            echo "| False Negative Rate | ${FN_RATE:-N/A} |" >> $GITHUB_STEP_SUMMARY
+          fi
 
-  #     - name: Production Summary
-  #       run: |
-  #         echo "## Production Deployment Summary" >> $GITHUB_STEP_SUMMARY
-  #         echo "" >> $GITHUB_STEP_SUMMARY
-  #         echo "**Image Tag:** ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
-  #         echo "" >> $GITHUB_STEP_SUMMARY
-  #         echo "### Services" >> $GITHUB_STEP_SUMMARY
-  #         echo '```' >> $GITHUB_STEP_SUMMARY
-  #         kubectl get pods -n ${{ env.SERVING_NAMESPACE }} >> $GITHUB_STEP_SUMMARY
-  #         echo '```' >> $GITHUB_STEP_SUMMARY
-
-  # # ===========================================================================
-  # # Rollback (Manual Trigger Only)
-  # # ===========================================================================
-  # rollback:
-  #   name: Rollback Deployment
-  #   runs-on: ml-platform-runners
-  #   if: github.event_name == 'workflow_dispatch' && failure()
+  # ===========================================================================
+  # Deploy to Production (Manual Approval Required)
+  # ===========================================================================
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ml-platform-runners
+    needs: [build, integration-tests]
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_environment == 'production'
     
-  #   steps:
-  #     - name: Rollback API Gateway
-  #       run: |
-  #         kubectl rollout undo deployment/api-gateway -n ${{ env.SERVING_NAMESPACE }}
-  #         kubectl rollout status deployment/api-gateway -n ${{ env.SERVING_NAMESPACE }} --timeout=300s
+    environment:
+      name: production
+      url: http://api.ml-platform.example.com
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-  #     - name: Rollback Feature Transformer
-  #       run: |
-  #         kubectl rollout undo deployment/feature-transformer -n ${{ env.SERVING_NAMESPACE }}
-  #         kubectl rollout status deployment/feature-transformer -n ${{ env.SERVING_NAMESPACE }} --timeout=300s
+      - name: Install kubectl and envsubst
+        run: |
+          curl -LO "https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+          sudo apt-get update && sudo apt-get install -y gettext-base
+          kubectl version --client
+          envsubst --version
 
-  #     - name: Rollback Summary
-  #       run: |
-  #         echo "## Rollback Complete" >> $GITHUB_STEP_SUMMARY
-  #         echo "" >> $GITHUB_STEP_SUMMARY
-  #         echo "Rolled back to previous deployment version." >> $GITHUB_STEP_SUMMARY
+      - name: Deploy Feature Transformer
+        run: |
+          kubectl set image deployment/feature-transformer \
+            feature-transformer=${{ env.ACR_NAME }}/${{ env.FEATURE_TRANSFORMER_IMAGE }}:${{ needs.build.outputs.image_tag }} \
+            -n ${{ env.SERVING_NAMESPACE }}
+          kubectl rollout status deployment/feature-transformer -n ${{ env.SERVING_NAMESPACE }} --timeout=300s
+
+      - name: Deploy API Gateway
+        working-directory: model-serving
+        run: |
+          export ACR_NAME=${{ env.ACR_NAME }}
+          export IMAGE_TAG=${{ needs.build.outputs.image_tag }}
+          envsubst < api-gateway/deployment.yaml | kubectl apply -f -
+          kubectl apply -f api-gateway/istio.yaml
+          kubectl rollout status deployment/api-gateway -n ${{ env.SERVING_NAMESPACE }} --timeout=300s
+
+      - name: Promote KServe Model to Production
+        run: |
+          # Update production inference service traffic
+          kubectl patch inferenceservice spam-detector -n ${{ env.KSERVE_NAMESPACE }} \
+            --type='merge' \
+            -p '{"spec":{"predictor":{"canaryTrafficPercent":0}}}'
+          
+          echo "Production deployment complete!"
+
+      - name: Production Summary
+        run: |
+          echo "## Production Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image Tag:** ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Services" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          kubectl get pods -n ${{ env.SERVING_NAMESPACE }} >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

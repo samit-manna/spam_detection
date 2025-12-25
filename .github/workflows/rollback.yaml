@@ -1,0 +1,281 @@
+# =============================================================================
+# Emergency Rollback Workflow
+# =============================================================================
+# Fast rollback for production incidents - bypasses normal CI/CD flow
+# Manually triggered with options for code and/or model rollback
+# =============================================================================
+
+name: Emergency Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      rollback_type:
+        description: 'What to rollback'
+        required: true
+        default: 'code-only'
+        type: choice
+        options:
+          - code-only
+          - model-only
+          - both
+      environment:
+        description: 'Environment to rollback'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      component:
+        description: 'Code component to rollback (ignored for model-only)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - api-gateway
+          - feature-transformer
+      rollback_to:
+        description: 'Code rollback method (ignored for model-only)'
+        required: true
+        default: 'previous'
+        type: choice
+        options:
+          - previous        # Rollback to previous revision
+          - specific-tag    # Rollback to specific image tag
+      image_tag:
+        description: 'Image tag (only if rollback_to=specific-tag)'
+        required: false
+        type: string
+      reason:
+        description: 'Reason for rollback (for audit log)'
+        required: true
+        type: string
+
+env:
+  ACR_NAME: mltrainingsdevacrqvwjyi.azurecr.io
+  API_GATEWAY_IMAGE: api-gateway
+  FEATURE_TRANSFORMER_IMAGE: feature-transformer
+  SERVING_NAMESPACE: serving
+  KSERVE_NAMESPACE: kserve
+  MLFLOW_URI: http://mlflow.mlflow.svc.cluster.local:5000
+  MODEL_NAME: spam-detector
+
+jobs:
+  # ===========================================================================
+  # Code Rollback Job
+  # ===========================================================================
+  code-rollback:
+    name: Rollback ${{ github.event.inputs.component }} in ${{ github.event.inputs.environment }}
+    runs-on: ml-platform-runners
+    if: inputs.rollback_type == 'code-only' || inputs.rollback_type == 'both'
+    
+    environment:
+      name: ${{ github.event.inputs.environment }}
+    
+    steps:
+      - name: Log rollback initiation
+        run: |
+          echo "🚨 CODE ROLLBACK INITIATED"
+          echo "  Environment: ${{ inputs.environment }}"
+          echo "  Component: ${{ inputs.component }}"
+          echo "  Reason: ${{ inputs.reason }}"
+          echo "  Initiated by: ${{ github.actor }}"
+
+      - name: Install kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+          kubectl version --client
+
+      - name: Get current state
+        run: |
+          echo "## Current Deployment State" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Before Rollback" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          kubectl get deployments -n ${{ env.SERVING_NAMESPACE }} -o wide >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Current Images" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          kubectl get deployments -n ${{ env.SERVING_NAMESPACE }} -o jsonpath='{range .items[*]}{.metadata.name}: {.spec.template.spec.containers[0].image}{"\n"}{end}' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      # Rollback API Gateway
+      - name: Rollback API Gateway (previous revision)
+        if: (github.event.inputs.component == 'all' || github.event.inputs.component == 'api-gateway') && github.event.inputs.rollback_to == 'previous'
+        run: |
+          echo "Rolling back API Gateway to previous revision..."
+          kubectl rollout undo deployment/api-gateway -n ${{ env.SERVING_NAMESPACE }}
+          kubectl rollout status deployment/api-gateway -n ${{ env.SERVING_NAMESPACE }} --timeout=300s
+
+      - name: Rollback API Gateway (specific tag)
+        if: (github.event.inputs.component == 'all' || github.event.inputs.component == 'api-gateway') && github.event.inputs.rollback_to == 'specific-tag'
+        run: |
+          echo "Rolling back API Gateway to tag: ${{ github.event.inputs.image_tag }}"
+          kubectl set image deployment/api-gateway \
+            api-gateway=${{ env.ACR_NAME }}/${{ env.API_GATEWAY_IMAGE }}:${{ github.event.inputs.image_tag }} \
+            -n ${{ env.SERVING_NAMESPACE }}
+          kubectl rollout status deployment/api-gateway -n ${{ env.SERVING_NAMESPACE }} --timeout=300s
+
+      # Rollback Feature Transformer
+      - name: Rollback Feature Transformer (previous revision)
+        if: (github.event.inputs.component == 'all' || github.event.inputs.component == 'feature-transformer') && github.event.inputs.rollback_to == 'previous'
+        run: |
+          echo "Rolling back Feature Transformer to previous revision..."
+          kubectl rollout undo deployment/feature-transformer -n ${{ env.SERVING_NAMESPACE }}
+          kubectl rollout status deployment/feature-transformer -n ${{ env.SERVING_NAMESPACE }} --timeout=300s
+
+      - name: Rollback Feature Transformer (specific tag)
+        if: (github.event.inputs.component == 'all' || github.event.inputs.component == 'feature-transformer') && github.event.inputs.rollback_to == 'specific-tag'
+        run: |
+          echo "Rolling back Feature Transformer to tag: ${{ github.event.inputs.image_tag }}"
+          kubectl set image deployment/feature-transformer \
+            feature-transformer=${{ env.ACR_NAME }}/${{ env.FEATURE_TRANSFORMER_IMAGE }}:${{ github.event.inputs.image_tag }} \
+            -n ${{ env.SERVING_NAMESPACE }}
+          kubectl rollout status deployment/feature-transformer -n ${{ env.SERVING_NAMESPACE }} --timeout=300s
+
+      - name: Verify rollback
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### After Rollback" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          kubectl get pods -n ${{ env.SERVING_NAMESPACE }} -l "app in (api-gateway,feature-transformer)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### New Images" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          kubectl get deployments -n ${{ env.SERVING_NAMESPACE }} -o jsonpath='{range .items[*]}{.metadata.name}: {.spec.template.spec.containers[0].image}{"\n"}{end}' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Rollback Summary
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "## Rollback Complete ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ github.event.inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | ${{ github.event.inputs.component }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Method | ${{ github.event.inputs.rollback_to }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Reason | ${{ github.event.inputs.reason }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Triggered by | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Time | $(date -u) |" >> $GITHUB_STEP_SUMMARY
+
+  # ===========================================================================
+  # Model Rollback Job
+  # ===========================================================================
+  model-rollback:
+    name: Rollback ML Model in ${{ github.event.inputs.environment }}
+    runs-on: ml-platform-runners
+    if: inputs.rollback_type == 'model-only' || inputs.rollback_type == 'both'
+    
+    environment:
+      name: ${{ github.event.inputs.environment }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log rollback initiation
+        run: |
+          echo "🚨 MODEL ROLLBACK INITIATED"
+          echo "  Environment: ${{ inputs.environment }}"
+          echo "  Reason: ${{ inputs.reason }}"
+          echo "  Initiated by: ${{ github.actor }}"
+
+      - name: Install dependencies
+        run: |
+          # Install kubectl
+          curl -LO "https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+          
+          # Install Python dependencies for MLflow
+          pip install requests mlflow
+
+      - name: Get current model version
+        id: current-version
+        run: |
+          STAGE=${{ inputs.environment == 'production' && 'Production' || 'Staging' }}
+          
+          CURRENT=$(python3 -c "
+          import requests
+          r = requests.get('${{ env.MLFLOW_URI }}/api/2.0/mlflow/model-versions/search', 
+                          params={'filter': \"name='${{ env.MODEL_NAME }}'\"})
+          versions = [v for v in r.json().get('model_versions', []) if v.get('current_stage')=='$STAGE']
+          print(versions[0]['version'] if versions else 'unknown')
+          ")
+          
+          echo "current_version=${CURRENT}" >> $GITHUB_OUTPUT
+          echo "📊 Current $STAGE model version: ${CURRENT}"
+
+      - name: Rollback model in MLflow
+        working-directory: model-serving
+        run: |
+          STAGE=${{ inputs.environment == 'production' && 'Production' || 'Staging' }}
+          
+          echo "Rolling back ${{ env.MODEL_NAME }} in $STAGE..."
+          python3 scripts/model_lifecycle.py rollback \
+            --model-name ${{ env.MODEL_NAME }} \
+            --stage $STAGE \
+            --mlflow-uri ${{ env.MLFLOW_URI }}
+
+      - name: Get new model version
+        id: new-version
+        run: |
+          STAGE=${{ inputs.environment == 'production' && 'Production' || 'Staging' }}
+          
+          NEW=$(python3 -c "
+          import requests
+          r = requests.get('${{ env.MLFLOW_URI }}/api/2.0/mlflow/model-versions/search', 
+                          params={'filter': \"name='${{ env.MODEL_NAME }}'\"})
+          versions = [v for v in r.json().get('model_versions', []) if v.get('current_stage')=='$STAGE']
+          print(versions[0]['version'] if versions else 'unknown')
+          ")
+          
+          echo "new_version=${NEW}" >> $GITHUB_OUTPUT
+          echo "📊 New $STAGE model version: ${NEW}"
+
+      - name: Restart KServe inference pods
+        run: |
+          if [ "${{ inputs.environment }}" == "staging" ]; then
+            INFERENCE_SERVICE="spam-detector-staging"
+          else
+            INFERENCE_SERVICE="spam-detector"
+          fi
+          
+          echo "Restarting inference pods for ${INFERENCE_SERVICE}..."
+          kubectl delete pod -n ${{ env.KSERVE_NAMESPACE }} \
+            -l serving.kserve.io/inferenceservice=${INFERENCE_SERVICE} \
+            --ignore-not-found=true
+          
+          # Wait for new pods to be ready
+          echo "Waiting for new pods..."
+          sleep 15
+          kubectl wait --for=condition=ready pod \
+            -l serving.kserve.io/inferenceservice=${INFERENCE_SERVICE} \
+            -n ${{ env.KSERVE_NAMESPACE }} \
+            --timeout=300s || echo "Warning: Timeout waiting for pods"
+
+      - name: Model Rollback Summary
+        run: |
+          echo "## 🤖 Model Rollback Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Model | ${{ env.MODEL_NAME }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Previous Version | ${{ steps.current-version.outputs.current_version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Rolled Back To | ${{ steps.new-version.outputs.new_version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Reason | ${{ inputs.reason }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Triggered by | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Inference Service Status" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          kubectl get inferenceservice -n ${{ env.KSERVE_NAMESPACE }} >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
