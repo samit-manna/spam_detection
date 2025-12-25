@@ -232,6 +232,13 @@ resource "kubernetes_cluster_role" "github_runner" {
     verbs      = ["get", "list", "watch", "create", "update", "patch", "delete"]
   }
 
+  # Allow accessing pod logs and exec/attach (needed for smoke tests)
+  rule {
+    api_groups = [""]
+    resources  = ["pods/log", "pods/attach", "pods/exec"]
+    verbs      = ["get", "create"]
+  }
+
   rule {
     api_groups = ["apps"]
     resources  = ["deployments", "replicasets", "statefulsets"]
