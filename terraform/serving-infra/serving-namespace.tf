@@ -27,8 +27,10 @@ resource "kubernetes_secret" "kserve_storage" {
   }
 
   data = {
-    AZURE_STORAGE_ACCOUNT_NAME = local.storage_account
-    AZURE_STORAGE_ACCOUNT_KEY  = local.storage_key
+    AZURE_STORAGE_ACCOUNT_NAME      = local.storage_account
+    AZURE_STORAGE_ACCOUNT_KEY       = local.storage_key
+    AZURE_STORAGE_ACCESS_KEY        = local.storage_key
+    AZURE_STORAGE_CONNECTION_STRING = "DefaultEndpointsProtocol=https;AccountName=${local.storage_account};AccountKey=${local.storage_key};EndpointSuffix=core.windows.net"
   }
 
   depends_on = [kubernetes_namespace.kserve]
@@ -42,8 +44,10 @@ resource "kubernetes_secret" "serving_storage" {
   }
 
   data = {
-    AZURE_STORAGE_ACCOUNT_NAME = local.storage_account
-    AZURE_STORAGE_ACCOUNT_KEY  = local.storage_key
+    AZURE_STORAGE_ACCOUNT_NAME      = local.storage_account
+    AZURE_STORAGE_ACCOUNT_KEY       = local.storage_key
+    AZURE_STORAGE_ACCESS_KEY        = local.storage_key
+    AZURE_STORAGE_CONNECTION_STRING = "DefaultEndpointsProtocol=https;AccountName=${local.storage_account};AccountKey=${local.storage_key};EndpointSuffix=core.windows.net"
   }
 }
 

@@ -525,6 +525,11 @@ spec:
                 secretKeyRef:
                   name: azure-storage-secret
                   key: AZURE_STORAGE_ACCESS_KEY
+            - name: AZURE_STORAGE_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: azure-storage-secret
+                  key: AZURE_STORAGE_CONNECTION_STRING
           resources:
             requests:
               memory: "512Mi"
