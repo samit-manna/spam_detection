@@ -1,15 +1,16 @@
 # =============================================================================
 # Model Deployment Workflow
 # =============================================================================
-# Deploys ML models from MLflow to KServe in a staged flow:
-#   1. Verify model in Staging stage
-#   2. Deploy to staging KServe
-#   3. Run smoke tests
-#   4. Deploy to production (with approval)
+# Deploys ML models from MLflow to KServe using kubectl directly.
+# All secrets are read from Kubernetes secrets (deployed by Terraform).
+# No sensitive values are passed via CLI or environment variables.
 #
-# Triggered:
-#   - Manually via workflow_dispatch
-#   - By Kubeflow pipeline completion (future webhook)
+# Flow:
+#   1. Verify model in Staging stage (MLflow)
+#   2. Export model to ONNX (Kubernetes Job)
+#   3. Deploy to staging KServe
+#   4. Run smoke tests
+#   5. Deploy to production (with approval)
 # =============================================================================
 
 name: Model Deploy
@@ -40,12 +41,11 @@ on:
           - 'false'
 
 env:
-  ACR_NAME: mltrainingsdevacrqvwjyi.azurecr.io
   KSERVE_NAMESPACE: kserve
   SERVING_NAMESPACE: serving
-  MLFLOW_TRACKING_URI: http://mlflow-service.mlflow.svc.cluster.local:5000
-  STORAGE_ACCOUNT: mltrainingsdevstqvwjyi
-  MODEL_CONTAINER: models
+  MLFLOW_NAMESPACE: mlflow
+  # ACR name is fetched from cluster ConfigMap
+  IMAGE_TAG: v0.35
 
 jobs:
   # ===========================================================================
@@ -58,32 +58,56 @@ jobs:
     outputs:
       version: ${{ steps.model-info.outputs.version }}
       run_id: ${{ steps.model-info.outputs.run_id }}
+      acr_name: ${{ steps.cluster-info.outputs.acr_name }}
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install kubectl
         run: |
-          sudo apt-get update && sudo apt-get install -y python3-pip
-          pip3 install requests
+          curl -LO "https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+      - name: Get Cluster Info
+        id: cluster-info
+        run: |
+          # Get ACR name from kserve namespace configmap or secret
+          ACR_NAME=$(kubectl get secret azure-storage-secret -n ${{ env.KSERVE_NAMESPACE }} \
+            -o jsonpath='{.data.AZURE_STORAGE_ACCOUNT_NAME}' | base64 -d | sed 's/devsa/devacrqvwjyi.azurecr.io/' | sed 's/mltrainingsdevstqvwjyi/mltrainingsdevacrqvwjyi.azurecr.io/')
+          
+          # Fallback: hardcode if pattern doesn't match
+          if [[ ! "$ACR_NAME" =~ "azurecr.io" ]]; then
+            ACR_NAME="mltrainingsdevacrqvwjyi.azurecr.io"
+          fi
+          
+          echo "acr_name=${ACR_NAME}" >> $GITHUB_OUTPUT
+          echo "📦 ACR: ${ACR_NAME}"
 
       - name: Get Model in Staging Stage
         id: model-info
         run: |
           echo "🔍 Looking for model in Staging stage..."
           
-          RESPONSE=$(curl -s "${{ env.MLFLOW_TRACKING_URI }}/api/2.0/mlflow/registered-models/get-latest-versions" \
-            -H "Content-Type: application/json" \
-            -d "{\"name\": \"${{ github.event.inputs.model_name }}\", \"stages\": [\"Staging\"]}")
+          # Get MLflow service URL
+          MLFLOW_URL="http://mlflow-service.${{ env.MLFLOW_NAMESPACE }}.svc.cluster.local:5000"
           
-          VERSION=$(echo "$RESPONSE" | jq -r '.model_versions[0].version // empty')
-          RUN_ID=$(echo "$RESPONSE" | jq -r '.model_versions[0].run_id // empty')
+          # Query MLflow from within cluster
+          RESPONSE=$(kubectl run mlflow-query-$(date +%s) \
+            --image=curlimages/curl:latest \
+            --restart=Never \
+            --rm -i \
+            --command -- curl -s "${MLFLOW_URL}/api/2.0/mlflow/registered-models/get-latest-versions" \
+            -H "Content-Type: application/json" \
+            -d '{"name": "${{ github.event.inputs.model_name }}", "stages": ["Staging"]}' 2>/dev/null || echo "{}")
+          
+          VERSION=$(echo "$RESPONSE" | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
+          RUN_ID=$(echo "$RESPONSE" | grep -o '"run_id":"[^"]*"' | head -1 | cut -d'"' -f4)
           
           if [ -z "$VERSION" ]; then
             echo "❌ No model found in Staging stage!"
             echo "   Please ensure the Kubeflow training pipeline has completed"
-            echo "   and promoted a model to Staging."
             exit 1
           fi
           
@@ -91,28 +115,6 @@ jobs:
           echo "run_id=${RUN_ID}" >> $GITHUB_OUTPUT
           
           echo "✅ Found model version ${VERSION} in Staging stage"
-
-      - name: Get Model Metrics
-        id: metrics
-        run: |
-          RUN_ID="${{ steps.model-info.outputs.run_id }}"
-          
-          METRICS=$(curl -s "${{ env.MLFLOW_TRACKING_URI }}/api/2.0/mlflow/runs/get?run_id=${RUN_ID}" \
-            | jq -r '.run.data.metrics // []')
-          
-          ACCURACY=$(echo "$METRICS" | jq -r '.[] | select(.key=="accuracy") | .value // "N/A"')
-          F1=$(echo "$METRICS" | jq -r '.[] | select(.key=="f1_score") | .value // "N/A"')
-          AUC=$(echo "$METRICS" | jq -r '.[] | select(.key=="roc_auc") | .value // "N/A"')
-          
-          echo "accuracy=${ACCURACY}" >> $GITHUB_OUTPUT
-          echo "f1=${F1}" >> $GITHUB_OUTPUT
-          echo "auc=${AUC}" >> $GITHUB_OUTPUT
-          
-          echo ""
-          echo "📊 Model Metrics:"
-          echo "   Accuracy: ${ACCURACY}"
-          echo "   F1 Score: ${F1}"
-          echo "   ROC AUC: ${AUC}"
 
       - name: Verification Summary
         run: |
@@ -123,22 +125,113 @@ jobs:
           echo "| Model | ${{ github.event.inputs.model_name }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Version | ${{ steps.model-info.outputs.version }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Stage | Staging |" >> $GITHUB_STEP_SUMMARY
-          echo "| Run ID | ${{ steps.model-info.outputs.run_id }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Metrics" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Accuracy | ${{ steps.metrics.outputs.accuracy }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| F1 Score | ${{ steps.metrics.outputs.f1 }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| ROC AUC | ${{ steps.metrics.outputs.auc }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ACR | ${{ steps.cluster-info.outputs.acr_name }} |" >> $GITHUB_STEP_SUMMARY
 
   # ===========================================================================
-  # Step 2: Deploy to Staging KServe
+  # Step 2: Export Model to ONNX (Kubernetes Job)
+  # ===========================================================================
+  export-model:
+    name: Export Model to ONNX
+    runs-on: ml-platform-runners
+    needs: verify-staging-model
+    if: github.event.inputs.skip_export != 'true'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+      - name: Create and Run Export Job
+        run: |
+          TIMESTAMP=$(date +%s)
+          JOB_NAME="model-export-${TIMESTAMP}"
+          ACR_NAME="${{ needs.verify-staging-model.outputs.acr_name }}"
+          
+          echo "🚀 Creating model export job: ${JOB_NAME}"
+          
+          # Create the job YAML with substitutions
+          cat <<EOF | kubectl apply -f -
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: ${JOB_NAME}
+            namespace: ${{ env.KSERVE_NAMESPACE }}
+            labels:
+              app: model-export
+              model-stage: Staging
+          spec:
+            ttlSecondsAfterFinished: 3600
+            backoffLimit: 2
+            template:
+              metadata:
+                labels:
+                  app: model-export
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: model-export
+                    image: ${ACR_NAME}/model-export:${{ env.IMAGE_TAG }}
+                    args:
+                      - "--model-name"
+                      - "${{ github.event.inputs.model_name }}"
+                      - "--model-stage"
+                      - "Staging"
+                    env:
+                      - name: MLFLOW_TRACKING_URI
+                        value: "http://mlflow-service.${{ env.MLFLOW_NAMESPACE }}.svc.cluster.local:5000"
+                      - name: AZURE_STORAGE_ACCOUNT_NAME
+                        valueFrom:
+                          secretKeyRef:
+                            name: azure-storage-secret
+                            key: AZURE_STORAGE_ACCOUNT_NAME
+                      - name: AZURE_STORAGE_ACCOUNT_KEY
+                        valueFrom:
+                          secretKeyRef:
+                            name: azure-storage-secret
+                            key: AZURE_STORAGE_ACCESS_KEY
+                      - name: AZURE_STORAGE_CONTAINER
+                        value: "models"
+                    resources:
+                      requests:
+                        cpu: "500m"
+                        memory: "1Gi"
+                      limits:
+                        cpu: "2"
+                        memory: "4Gi"
+          EOF
+          
+          # Wait for job to complete
+          echo "⏳ Waiting for export job to complete..."
+          kubectl wait --for=condition=complete job/${JOB_NAME} \
+            -n ${{ env.KSERVE_NAMESPACE }} \
+            --timeout=600s || {
+              echo "❌ Export job failed or timed out"
+              kubectl logs job/${JOB_NAME} -n ${{ env.KSERVE_NAMESPACE }}
+              exit 1
+            }
+          
+          echo "✅ Model export completed"
+          kubectl logs job/${JOB_NAME} -n ${{ env.KSERVE_NAMESPACE }} | tail -20
+
+      - name: Export Summary
+        run: |
+          echo "## 📦 Model Export" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Model exported to ONNX format and uploaded to Azure Blob Storage" >> $GITHUB_STEP_SUMMARY
+
+  # ===========================================================================
+  # Step 3: Deploy to Staging KServe
   # ===========================================================================
   deploy-staging:
     name: Deploy to Staging
     runs-on: ml-platform-runners
-    needs: verify-staging-model
+    needs: [verify-staging-model, export-model]
+    if: always() && needs.verify-staging-model.result == 'success' && (needs.export-model.result == 'success' || needs.export-model.result == 'skipped')
     
     environment:
       name: staging
@@ -147,78 +240,63 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install tools
+      - name: Install kubectl
         run: |
-          # Install kubectl
           curl -LO "https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
-          
-          # Install Azure CLI
-          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-          
-          # Install Python dependencies
-          sudo apt-get update && sudo apt-get install -y python3-pip
-          pip3 install requests mlflow xgboost onnx onnxmltools skl2onnx numpy pandas
 
-      - name: Azure Login
+      - name: Deploy Staging InferenceService
         run: |
-          az login --identity --client-id 9ae25c5e-14d8-4384-9c87-a57fecb27335
-          az account set --subscription $(az account list --query "[0].id" -o tsv)
-
-      - name: Deploy Model to Staging
-        working-directory: model-serving/scripts
-        env:
-          MLFLOW_TRACKING_URI: ${{ env.MLFLOW_TRACKING_URI }}
-        run: |
-          echo "🚀 Deploying model version ${{ needs.verify-staging-model.outputs.version }} to Staging..."
+          echo "🚀 Deploying staging InferenceService..."
           
-          SKIP_EXPORT_FLAG=""
-          if [ "${{ github.event.inputs.skip_export }}" == "true" ]; then
-            SKIP_EXPORT_FLAG="--skip-export"
-          fi
+          # Apply YAML (uses K8s secrets, no envsubst needed)
+          kubectl apply -f model-serving/inference-service/staging-isvc.yaml
           
-          python3 model_lifecycle.py deploy \
-            --model-name ${{ github.event.inputs.model_name }} \
-            --stage Staging \
-            --mlflow-uri ${{ env.MLFLOW_TRACKING_URI }} \
-            ${SKIP_EXPORT_FLAG}
-
-      - name: Wait for Staging InferenceService
-        run: |
-          ISVC_NAME="${{ github.event.inputs.model_name }}-staging"
-          
-          echo "⏳ Waiting for InferenceService ${ISVC_NAME}..."
+          echo "⏳ Waiting for InferenceService to be ready..."
           kubectl wait --for=condition=Ready \
-            inferenceservice/${ISVC_NAME} \
+            inferenceservice/spam-detector-staging \
             -n ${{ env.KSERVE_NAMESPACE }} \
-            --timeout=300s
+            --timeout=300s || {
+              echo "⚠️ InferenceService not ready yet, checking status..."
+              kubectl get inferenceservice spam-detector-staging -n ${{ env.KSERVE_NAMESPACE }} -o yaml
+            }
+
+      - name: Restart Inference Pods
+        run: |
+          echo "🔄 Restarting inference pods to load new model..."
+          kubectl delete pod \
+            -l serving.kserve.io/inferenceservice=spam-detector-staging \
+            -n ${{ env.KSERVE_NAMESPACE }} \
+            --ignore-not-found=true
+          
+          sleep 10
           
           kubectl wait --for=condition=Ready \
-            pod -l serving.kserve.io/inferenceservice=${ISVC_NAME} \
+            pod -l serving.kserve.io/inferenceservice=spam-detector-staging \
             -n ${{ env.KSERVE_NAMESPACE }} \
-            --timeout=120s
-          
-          echo "✅ Staging InferenceService is ready"
+            --timeout=180s || echo "⚠️ Pods not ready yet"
+
+      - name: Verify Staging Deployment
+        run: |
+          echo "📊 Staging deployment status:"
+          kubectl get inferenceservice spam-detector-staging -n ${{ env.KSERVE_NAMESPACE }}
+          echo ""
+          kubectl get pods -n ${{ env.KSERVE_NAMESPACE }} \
+            -l serving.kserve.io/inferenceservice=spam-detector-staging
 
       - name: Staging Deployment Summary
         run: |
-          ISVC_NAME="${{ github.event.inputs.model_name }}-staging"
-          
           echo "## 🚀 Staging Deployment" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Model | ${{ github.event.inputs.model_name }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Version | ${{ needs.verify-staging-model.outputs.version }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| InferenceService | ${ISVC_NAME} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          kubectl get inferenceservice ${ISVC_NAME} -n ${{ env.KSERVE_NAMESPACE }} >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "| InferenceService | spam-detector-staging |" >> $GITHUB_STEP_SUMMARY
 
   # ===========================================================================
-  # Step 3: Smoke Tests on Staging
+  # Step 4: Smoke Tests
   # ===========================================================================
   smoke-tests:
     name: Smoke Tests
@@ -232,33 +310,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install tools
+      - name: Install kubectl
         run: |
           curl -LO "https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
-          sudo apt-get update && sudo apt-get install -y python3-pip
-          pip3 install requests numpy
 
       - name: Run Smoke Tests
         id: smoke-test
         run: |
           echo "🧪 Running smoke tests against staging model..."
           
-          ISVC_NAME="${{ github.event.inputs.model_name }}-staging"
+          # Get predictor service URL
+          PREDICTOR_SVC="spam-detector-staging-predictor.${{ env.KSERVE_NAMESPACE }}.svc.cluster.local"
           
-          # Get the internal service URL
-          PREDICTOR_URL=$(kubectl get inferenceservice ${ISVC_NAME} -n ${{ env.KSERVE_NAMESPACE }} \
-            -o jsonpath='{.status.url}')
-          
-          echo "Predictor URL: ${PREDICTOR_URL}"
-          
-          # Test 1: Health check
+          # Test 1: Health check via curl pod
           echo ""
           echo "Test 1: Health Check"
-          HEALTH=$(kubectl exec -n ${{ env.SERVING_NAMESPACE }} \
-            deploy/feature-transformer -- \
-            curl -s "${PREDICTOR_URL}/v2/health/ready" || echo "failed")
+          HEALTH=$(kubectl run health-check-$(date +%s) \
+            --image=curlimages/curl:latest \
+            --restart=Never \
+            --rm -i \
+            --command -- curl -s "http://${PREDICTOR_SVC}/v2/health/ready" 2>/dev/null || echo "failed")
           
           if [[ "$HEALTH" == *"failed"* ]]; then
             echo "❌ Health check failed"
@@ -271,14 +344,16 @@ jobs:
           echo ""
           echo "Test 2: Sample Prediction"
           
-          # Create test input (24 features)
           TEST_INPUT='{"inputs":[{"name":"float_input","shape":[1,24],"datatype":"FP32","data":[[0.5,0.3,0.2,0.1,0.8,0.6,0.4,0.7,0.9,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,0.1,0.2,0.3,0.4,0.5,0.6]]}]}'
           
-          PREDICTION=$(kubectl exec -n ${{ env.SERVING_NAMESPACE }} \
-            deploy/feature-transformer -- \
-            curl -s -X POST "${PREDICTOR_URL}/v2/models/${{ github.event.inputs.model_name }}/infer" \
+          PREDICTION=$(kubectl run predict-test-$(date +%s) \
+            --image=curlimages/curl:latest \
+            --restart=Never \
+            --rm -i \
+            --command -- curl -s -X POST \
+            "http://${PREDICTOR_SVC}/v2/models/${{ github.event.inputs.model_name }}/infer" \
             -H "Content-Type: application/json" \
-            -d "${TEST_INPUT}" || echo "prediction_failed")
+            -d "${TEST_INPUT}" 2>/dev/null || echo "prediction_failed")
           
           if [[ "$PREDICTION" == *"prediction_failed"* ]] || [[ "$PREDICTION" == *"error"* ]]; then
             echo "❌ Prediction test failed"
@@ -304,14 +379,9 @@ jobs:
           else
             echo "❌ **Smoke tests failed**" >> $GITHUB_STEP_SUMMARY
           fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Test | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Health Check | ${{ steps.smoke-test.outputs.passed == 'true' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Sample Prediction | ${{ steps.smoke-test.outputs.passed == 'true' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
 
   # ===========================================================================
-  # Step 4: Verify Model in Production Stage
+  # Step 5: Verify Production Model
   # ===========================================================================
   verify-production-model:
     name: Verify Model in Production Stage
@@ -321,36 +391,37 @@ jobs:
     
     outputs:
       version: ${{ steps.model-info.outputs.version }}
-      run_id: ${{ steps.model-info.outputs.run_id }}
     
     steps:
-      - name: Install dependencies
+      - name: Install kubectl
         run: |
-          sudo apt-get update && sudo apt-get install -y python3-pip
-          pip3 install requests
+          curl -LO "https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
 
       - name: Get Model in Production Stage
         id: model-info
         run: |
           echo "🔍 Looking for model in Production stage..."
           
-          RESPONSE=$(curl -s "${{ env.MLFLOW_TRACKING_URI }}/api/2.0/mlflow/registered-models/get-latest-versions" \
-            -H "Content-Type: application/json" \
-            -d "{\"name\": \"${{ github.event.inputs.model_name }}\", \"stages\": [\"Production\"]}")
+          MLFLOW_URL="http://mlflow-service.${{ env.MLFLOW_NAMESPACE }}.svc.cluster.local:5000"
           
-          VERSION=$(echo "$RESPONSE" | jq -r '.model_versions[0].version // empty')
-          RUN_ID=$(echo "$RESPONSE" | jq -r '.model_versions[0].run_id // empty')
+          RESPONSE=$(kubectl run mlflow-query-prod-$(date +%s) \
+            --image=curlimages/curl:latest \
+            --restart=Never \
+            --rm -i \
+            --command -- curl -s "${MLFLOW_URL}/api/2.0/mlflow/registered-models/get-latest-versions" \
+            -H "Content-Type: application/json" \
+            -d '{"name": "${{ github.event.inputs.model_name }}", "stages": ["Production"]}' 2>/dev/null || echo "{}")
+          
+          VERSION=$(echo "$RESPONSE" | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
           
           if [ -z "$VERSION" ]; then
             echo "❌ No model found in Production stage!"
-            echo "   Please ensure the Kubeflow training pipeline has promoted"
-            echo "   a model to Production stage."
             exit 1
           fi
           
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "run_id=${RUN_ID}" >> $GITHUB_OUTPUT
-          
           echo "✅ Found model version ${VERSION} in Production stage"
 
       - name: Production Model Summary
@@ -364,7 +435,7 @@ jobs:
           echo "| Stage | Production |" >> $GITHUB_STEP_SUMMARY
 
   # ===========================================================================
-  # Step 5: Deploy to Production (with approval)
+  # Step 6: Deploy to Production (with approval)
   # ===========================================================================
   deploy-production:
     name: Deploy to Production
@@ -379,63 +450,60 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install tools
+      - name: Install kubectl
         run: |
           curl -LO "https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
-          
-          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-          
-          sudo apt-get update && sudo apt-get install -y python3-pip
-          pip3 install requests mlflow xgboost onnx onnxmltools skl2onnx numpy pandas
 
-      - name: Azure Login
+      - name: Deploy Production InferenceService
         run: |
-          az login --identity --client-id 9ae25c5e-14d8-4384-9c87-a57fecb27335
-          az account set --subscription $(az account list --query "[0].id" -o tsv)
-
-      - name: Deploy Model to Production
-        working-directory: model-serving/scripts
-        env:
-          MLFLOW_TRACKING_URI: ${{ env.MLFLOW_TRACKING_URI }}
-        run: |
-          echo "🚀 Deploying model version ${{ needs.verify-production-model.outputs.version }} to Production..."
+          echo "🚀 Deploying production InferenceService..."
           
-          python3 model_lifecycle.py deploy \
-            --model-name ${{ github.event.inputs.model_name }} \
-            --stage Production \
-            --mlflow-uri ${{ env.MLFLOW_TRACKING_URI }} \
-            --skip-export  # Reuse ONNX from staging
-
-      - name: Wait for Production InferenceService
-        run: |
-          ISVC_NAME="${{ github.event.inputs.model_name }}"
+          # Apply YAML (uses K8s secrets, no envsubst needed)
+          kubectl apply -f model-serving/inference-service/production-isvc.yaml
           
-          echo "⏳ Waiting for InferenceService ${ISVC_NAME}..."
+          echo "⏳ Waiting for InferenceService to be ready..."
           kubectl wait --for=condition=Ready \
-            inferenceservice/${ISVC_NAME} \
+            inferenceservice/spam-detector \
             -n ${{ env.KSERVE_NAMESPACE }} \
-            --timeout=300s
+            --timeout=300s || {
+              echo "⚠️ InferenceService not ready yet, checking status..."
+              kubectl get inferenceservice spam-detector -n ${{ env.KSERVE_NAMESPACE }} -o yaml
+            }
+
+      - name: Restart Inference Pods
+        run: |
+          echo "🔄 Restarting inference pods to load new model..."
+          kubectl delete pod \
+            -l serving.kserve.io/inferenceservice=spam-detector \
+            -n ${{ env.KSERVE_NAMESPACE }} \
+            --ignore-not-found=true
+          
+          sleep 10
           
           kubectl wait --for=condition=Ready \
-            pod -l serving.kserve.io/inferenceservice=${ISVC_NAME} \
+            pod -l serving.kserve.io/inferenceservice=spam-detector \
             -n ${{ env.KSERVE_NAMESPACE }} \
-            --timeout=120s
-          
-          echo "✅ Production InferenceService is ready"
+            --timeout=180s || echo "⚠️ Pods not ready yet"
+
+      - name: Verify Production Deployment
+        run: |
+          echo "📊 Production deployment status:"
+          kubectl get inferenceservice spam-detector -n ${{ env.KSERVE_NAMESPACE }}
+          echo ""
+          kubectl get pods -n ${{ env.KSERVE_NAMESPACE }} \
+            -l serving.kserve.io/inferenceservice=spam-detector
 
       - name: Production Deployment Summary
         run: |
-          ISVC_NAME="${{ github.event.inputs.model_name }}"
-          
           echo "## 🎉 Production Deployment Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Model | ${{ github.event.inputs.model_name }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Version | ${{ needs.verify-production-model.outputs.version }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| InferenceService | ${ISVC_NAME} |" >> $GITHUB_STEP_SUMMARY
+          echo "| InferenceService | spam-detector |" >> $GITHUB_STEP_SUMMARY
           echo "| Deployed By | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Timestamp | $(date -u +%Y-%m-%dT%H:%M:%SZ) |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

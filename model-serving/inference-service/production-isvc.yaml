@@ -4,37 +4,14 @@
 # Production deployment has higher resource limits and stricter availability requirements.
 #
 # Prerequisites:
-#   - KServe installed via Terraform (../terraform/serving-infra)
+#   - KServe installed via Terraform
+#   - azure-storage-secret exists in kserve namespace (created by Terraform)
 #   - Model promoted to Production stage in MLflow
-#   - Model exported to Azure Blob (see model-export/)
-#   - Azure storage secret configured
+#   - Model exported to Azure Blob (via model-export job or make export-model)
 #
-# Usage:
+# Usage (no envsubst needed):
 #   kubectl apply -f production-isvc.yaml
----
-# Service Account for inference pods with Azure storage access
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: kserve-inference-sa
-  namespace: kserve
-  labels:
-    app: spam-detector
-secrets:
-  - name: storage-config
----
-# Secret for Azure Blob Storage - KServe standard format
-apiVersion: v1
-kind: Secret
-metadata:
-  name: storage-config
-  namespace: kserve
-  annotations:
-    kubectl.kubernetes.io/last-applied-configuration: ""
-type: Opaque
-stringData:
-  AZURE_STORAGE_ACCOUNT: "${AZURE_STORAGE_ACCOUNT_NAME}"
-  AZURE_STORAGE_ACCESS_KEY: "${AZURE_STORAGE_ACCOUNT_KEY}"
+#   make deploy-prod  # also works
 ---
 apiVersion: serving.kserve.io/v1beta1
 kind: InferenceService
@@ -46,10 +23,8 @@ metadata:
     environment: production
     version: v1
   annotations:
-    # Enable prometheus scraping
     prometheus.io/scrape: "true"
     prometheus.io/port: "8080"
-    # Use RawDeployment mode for full control over pod spec and init containers
     serving.kserve.io/deploymentMode: "RawDeployment"
 spec:
   predictor:
@@ -57,9 +32,7 @@ spec:
     minReplicas: 2
     maxReplicas: 10
     timeout: 30
-    serviceAccountName: kserve-inference-sa
     
-    # Use containers spec directly for full control
     containers:
       - name: kserve-container
         image: nvcr.io/nvidia/tritonserver:23.05-py3
@@ -102,22 +75,45 @@ spec:
           periodSeconds: 15
     
     # Init container to download model from Azure Blob Storage
+    # Uses azure-storage-secret (created by Terraform) - no envsubst needed
     initContainers:
       - name: storage-initializer
-        image: kserve/storage-initializer:v0.12.0
-        args:
-          - "https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/models/triton-repo/spam-detector"
-          - "/mnt/models/spam-detector"
+        image: mcr.microsoft.com/azure-cli:2.53.0
+        command:
+          - /bin/bash
+          - -c
+          - |
+            set -e
+            echo "Downloading model from Azure Blob Storage..."
+            
+            # Build storage URL from secret
+            STORAGE_URL="https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/models/triton-repo/spam-detector"
+            echo "Source: ${STORAGE_URL}"
+            echo "Destination: /mnt/models/spam-detector"
+            
+            mkdir -p /mnt/models/spam-detector
+            
+            # Download using az storage
+            az storage blob download-batch \
+              --account-name "${AZURE_STORAGE_ACCOUNT_NAME}" \
+              --account-key "${AZURE_STORAGE_ACCESS_KEY}" \
+              --source models \
+              --pattern "triton-repo/spam-detector/*" \
+              --destination /mnt/models \
+              --overwrite true
+            
+            echo "Model downloaded successfully"
+            ls -la /mnt/models/spam-detector/ || ls -la /mnt/models/
         env:
-          - name: AZURE_STORAGE_ACCOUNT
+          - name: AZURE_STORAGE_ACCOUNT_NAME
             valueFrom:
               secretKeyRef:
-                name: storage-config
-                key: AZURE_STORAGE_ACCOUNT
+                name: azure-storage-secret
+                key: AZURE_STORAGE_ACCOUNT_NAME
           - name: AZURE_STORAGE_ACCESS_KEY
             valueFrom:
               secretKeyRef:
-                name: storage-config
+                name: azure-storage-secret
                 key: AZURE_STORAGE_ACCESS_KEY
         volumeMounts:
           - name: model-storage
@@ -171,7 +167,6 @@ spec:
         attempts: 3
         perTryTimeout: 10s
         retryOn: "5xx,reset,connect-failure"
-      # Rate limiting headers
       headers:
         response:
           add:

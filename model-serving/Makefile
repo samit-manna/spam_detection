@@ -46,6 +46,12 @@ help:
 	@echo "  make build-images      Build and push all Docker images to ACR"
 	@echo "  make build-images IMAGE_TAG=v1.0.0  # Build with custom tag"
 	@echo ""
+	@echo "Model Lifecycle:"
+	@echo "  make model-list        List all model versions and stages"
+	@echo "  make model-promote     Promote model: VERSION=2 STAGE=Staging"
+	@echo "  make model-rollback    Rollback model: STAGE=Staging"
+	@echo "  make model-deploy      Export and deploy: STAGE=Staging"
+	@echo ""
 	@echo "Deployment:"
 	@echo "  make deploy-api-gateway Deploy API gateway"
 	@echo "  make deploy-staging    Deploy staging inference service"
@@ -53,6 +59,7 @@ help:
 	@echo "  make deploy-transformer Deploy feature transformer"
 	@echo "  make deploy-feast      Deploy Feast materialization cronjob"
 	@echo "  make export-model      Export model from MLflow to ONNX"
+	@echo "  make verify-onnx-conversion  Verify ONNX conversion quality (no upload)"
 	@echo ""
 	@echo "Operations:"
 	@echo "  make materialize       Run Feast materialization"
@@ -147,18 +154,18 @@ build-images:
 	@bash scripts/build_images.sh $(ACR_NAME) $(IMAGE_TAG)
 
 # Deployment targets
-deploy-staging: get-terraform-outputs
+deploy-staging:
 	@echo "$(YELLOW)Deploying staging inference service...$(NC)"
-	ACR_NAME=$(ACR_NAME) AZURE_STORAGE_ACCOUNT_NAME=$(AZURE_STORAGE_ACCOUNT_NAME) AZURE_STORAGE_ACCOUNT_KEY=$(AZURE_STORAGE_ACCOUNT_KEY) \
-		envsubst < inference-service/staging-isvc.yaml | kubectl apply -f -
+	@# No envsubst needed - YAML uses K8s secretKeyRef
+	kubectl apply -f inference-service/staging-isvc.yaml
 	kubectl wait --for=condition=Ready inferenceservice/spam-detector-staging -n $(NS_KSERVE) --timeout=300s
 	@echo "$(GREEN)Staging deployment complete$(NC)"
 	@kubectl get inferenceservice spam-detector-staging -n $(NS_KSERVE)
 
-deploy-prod: get-terraform-outputs
+deploy-prod:
 	@echo "$(YELLOW)Deploying production inference service...$(NC)"
-	ACR_NAME=$(ACR_NAME) AZURE_STORAGE_ACCOUNT_NAME=$(AZURE_STORAGE_ACCOUNT_NAME) AZURE_STORAGE_ACCOUNT_KEY=$(AZURE_STORAGE_ACCOUNT_KEY) \
-		envsubst < inference-service/production-isvc.yaml | kubectl apply -f -
+	@# No envsubst needed - YAML uses K8s secretKeyRef
+	kubectl apply -f inference-service/production-isvc.yaml
 	kubectl wait --for=condition=Ready inferenceservice/spam-detector -n $(NS_KSERVE) --timeout=300s
 	@echo "$(GREEN)Production deployment complete$(NC)"
 	@kubectl get inferenceservice spam-detector -n $(NS_KSERVE)
@@ -200,6 +207,27 @@ export-model: get-terraform-outputs
 		-it \
 		-- --model-name $(MODEL_NAME) --model-stage $(MODEL_STAGE)
 	@echo "$(GREEN)Model exported$(NC)"
+
+# Verify ONNX conversion quality (run before deployment)
+verify-onnx-conversion: get-terraform-outputs
+	@echo "$(YELLOW)Verifying ONNX conversion quality...$(NC)"
+	@echo ""
+	@echo "This will compare XGBoost vs ONNX predictions to detect conversion issues."
+	@echo "If prediction difference > 0.1%, the export will fail."
+	@echo ""
+	$(eval AZURE_STORAGE_CONNECTION_STRING := DefaultEndpointsProtocol=https;AccountName=$(AZURE_STORAGE_ACCOUNT_NAME);AccountKey=$(AZURE_STORAGE_ACCOUNT_KEY);EndpointSuffix=core.windows.net)
+	kubectl run onnx-verify-$(shell date +%s) \
+		--image=$(ACR_NAME)/model-export:$(IMAGE_TAG) \
+		--env="MLFLOW_TRACKING_URI=http://mlflow-service.mlflow.svc.cluster.local:5000" \
+		--env="AZURE_STORAGE_ACCOUNT_NAME=$(AZURE_STORAGE_ACCOUNT_NAME)" \
+		--env="AZURE_STORAGE_ACCOUNT_KEY=$(AZURE_STORAGE_ACCOUNT_KEY)" \
+		--env="AZURE_STORAGE_CONNECTION_STRING=$(AZURE_STORAGE_CONNECTION_STRING)" \
+		--restart=Never \
+		-it \
+		-- --model-name $(MODEL_NAME) --model-stage $(MODEL_STAGE) --no-upload
+	@echo ""
+	@echo "$(GREEN)✓ ONNX conversion validation passed$(NC)"
+	@echo "The model can be safely exported without degradation."
 
 # Operations targets
 materialize: get-terraform-outputs
@@ -297,3 +325,88 @@ logs-staging:
 
 logs-feast:
 	kubectl logs -f deployment/feast-redis -n $(NS_FEAST)
+
+# =============================================================================
+# Model Lifecycle Management
+# =============================================================================
+
+# MLflow URI for model lifecycle commands
+MLFLOW_URI ?= http://localhost:5000
+
+# List all model versions
+model-list:
+	@echo "$(YELLOW)Listing model versions...$(NC)"
+	@echo "Note: Ensure MLflow port-forward is running: kubectl port-forward svc/mlflow-service -n mlflow 5000:5000"
+	@python3 scripts/model_lifecycle.py list --model-name $(MODEL_NAME) --mlflow-uri $(MLFLOW_URI)
+
+# Promote a model version to a stage
+# Usage: make model-promote VERSION=2 STAGE=Staging
+model-promote:
+	@if [ -z "$(VERSION)" ]; then echo "$(RED)Error: VERSION is required. Usage: make model-promote VERSION=2 STAGE=Staging$(NC)"; exit 1; fi
+	@if [ -z "$(STAGE)" ]; then echo "$(RED)Error: STAGE is required. Usage: make model-promote VERSION=2 STAGE=Staging$(NC)"; exit 1; fi
+	@echo "$(YELLOW)Promoting model version $(VERSION) to $(STAGE)...$(NC)"
+	@python3 scripts/model_lifecycle.py promote --model-name $(MODEL_NAME) --version $(VERSION) --stage $(STAGE) --mlflow-uri $(MLFLOW_URI)
+
+# Rollback to previous model version (MLflow only - does NOT deploy!)
+# Usage: make model-rollback STAGE=Staging
+# Note: Use model-rollback-deploy for full rollback with deployment
+model-rollback:
+	@if [ -z "$(STAGE)" ]; then echo "$(RED)Error: STAGE is required. Usage: make model-rollback STAGE=Staging$(NC)"; exit 1; fi
+	@echo "$(YELLOW)Rolling back $(STAGE) to previous version in MLflow...$(NC)"
+	@python3 scripts/model_lifecycle.py rollback --model-name $(MODEL_NAME) --stage $(STAGE) --mlflow-uri $(MLFLOW_URI)
+	@echo ""
+	@echo "$(YELLOW)⚠ WARNING: This only updated MLflow. The deployed model has NOT changed!$(NC)"
+	@echo "$(YELLOW)  To deploy the rolled-back model, run: make model-deploy STAGE=$(STAGE)$(NC)"
+	@echo "$(YELLOW)  Or use: make model-rollback-deploy STAGE=$(STAGE) for both in one step$(NC)"
+
+# Full model deployment (export + deploy + restart)
+# Usage: make model-deploy STAGE=Staging
+model-deploy: get-terraform-outputs
+	@if [ -z "$(STAGE)" ]; then echo "$(RED)Error: STAGE is required. Usage: make model-deploy STAGE=Staging$(NC)"; exit 1; fi
+	@echo "$(YELLOW)Deploying model to $(STAGE)...$(NC)"
+	@echo ""
+	@echo "Step 1: Exporting model from MLflow..."
+	$(MAKE) export-model MODEL_STAGE=$(STAGE) IMAGE_TAG=$(IMAGE_TAG)
+	@echo ""
+	@echo "Step 2: Deploying to KServe..."
+	@if [ "$(STAGE)" = "Staging" ]; then \
+		$(MAKE) deploy-staging; \
+	else \
+		$(MAKE) deploy-prod; \
+	fi
+	@echo ""
+	@echo "Step 3: Restarting inference pods..."
+	@if [ "$(STAGE)" = "Staging" ]; then \
+		kubectl delete pod -n $(NS_KSERVE) -l serving.kserve.io/inferenceservice=spam-detector-staging; \
+	else \
+		kubectl delete pod -n $(NS_KSERVE) -l serving.kserve.io/inferenceservice=spam-detector; \
+	fi
+	@echo ""
+	@echo "$(GREEN)✓ Model deployment complete!$(NC)"
+
+# Quick rollback and deploy (single command)
+# Usage: make model-rollback-deploy STAGE=Staging
+model-rollback-deploy: get-terraform-outputs model-rollback
+	@echo ""
+	@echo "$(YELLOW)Cleaning up old Triton model versions from blob storage...$(NC)"
+	@# Keep only the version that matches the current MLflow staging version
+	@# First, get the current MLflow version for this stage
+	$(eval CURRENT_VERSION := $(shell python3 -c "import requests; r=requests.get('$(MLFLOW_URI)/api/2.0/mlflow/model-versions/search', params={'filter': \"name='$(MODEL_NAME)'\"}); versions=[v for v in r.json().get('model_versions', []) if v.get('current_stage')=='$(STAGE)']; print(versions[0]['version'] if versions else '1')"))
+	@echo "  Current $(STAGE) version: $(CURRENT_VERSION)"
+	@# Delete all version directories except the current one
+	@for v in $$(az storage blob list --account-name $(AZURE_STORAGE_ACCOUNT_NAME) --container-name models --prefix "triton-repo/$(MODEL_NAME)/" --query "[?contains(name, '/model.onnx')].name" -o tsv 2>/dev/null | sed 's|triton-repo/$(MODEL_NAME)/||' | sed 's|/model.onnx||' | sort -u); do \
+		if [ "$$v" != "$(CURRENT_VERSION)" ] && [ -n "$$v" ]; then \
+			echo "  Deleting old version: $$v"; \
+			az storage blob delete-batch --account-name $(AZURE_STORAGE_ACCOUNT_NAME) --source models --pattern "triton-repo/$(MODEL_NAME)/$$v/*" 2>/dev/null || true; \
+		fi; \
+	done
+	@echo "$(GREEN)✓ Old model versions cleaned up$(NC)"
+	@echo ""
+	@echo ""
+	@echo "Step 3: Restarting inference pods..."
+	@if [ "$(STAGE)" = "Staging" ]; then \
+		kubectl delete pod -n $(NS_KSERVE) -l serving.kserve.io/inferenceservice=spam-detector-staging; \
+	else \
+		kubectl delete pod -n $(NS_KSERVE) -l serving.kserve.io/inferenceservice=spam-detector; \
+	fi
+	@echo "$(GREEN)✓ Rollback and deployment complete!$(NC)"

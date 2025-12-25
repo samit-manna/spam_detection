@@ -1,0 +1,58 @@
+# Model Export Kubernetes Job
+# Exports MLflow model to ONNX format and uploads to Azure Blob Storage
+#
+# This job uses secrets already deployed by Terraform, no envsubst needed.
+#
+# Usage:
+#   kubectl apply -f export-job.yaml
+#   kubectl logs -f job/model-export-<timestamp> -n kserve
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: model-export-${TIMESTAMP}
+  namespace: kserve
+  labels:
+    app: model-export
+    model-stage: ${MODEL_STAGE}
+spec:
+  ttlSecondsAfterFinished: 3600  # Auto-cleanup after 1 hour
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: model-export
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: model-export
+          image: ${ACR_NAME}/model-export:${IMAGE_TAG}
+          args:
+            - "--model-name"
+            - "${MODEL_NAME}"
+            - "--model-stage"
+            - "${MODEL_STAGE}"
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: "http://mlflow-service.mlflow.svc.cluster.local:5000"
+            - name: AZURE_STORAGE_ACCOUNT_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: azure-storage-secret
+                  key: AZURE_STORAGE_ACCOUNT_NAME
+            - name: AZURE_STORAGE_ACCOUNT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: azure-storage-secret
+                  key: AZURE_STORAGE_ACCOUNT_KEY
+            - name: AZURE_STORAGE_CONNECTION_STRING
+              value: ""  # Will be constructed in container if needed
+            - name: AZURE_STORAGE_CONTAINER
+              value: "models"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
