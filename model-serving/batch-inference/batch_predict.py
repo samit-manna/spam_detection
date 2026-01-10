@@ -47,6 +47,7 @@ import mlflow
 import mlflow.xgboost
 from mlflow.tracking import MlflowClient
 import xgboost as xgb
+import cloudpickle  # Better for sklearn objects across environments
 
 # Configure logging
 logging.basicConfig(
@@ -110,7 +111,29 @@ def load_tfidf_vectorizer(fs: AzureBlobFileSystem):
     with fs.open(vectorizer_path, "rb") as f:
         vectorizer = pickle.load(f)
     
+    # Validate vectorizer is fitted
+    if not hasattr(vectorizer, 'vocabulary_') or vectorizer.vocabulary_ is None:
+        raise ValueError("TF-IDF vectorizer vocabulary is not set - vectorizer not fitted!")
+    
+    # Check if idf_ is set (for TfidfVectorizer)
+    if hasattr(vectorizer, 'idf_'):
+        logger.info(f"Vectorizer has idf_ with shape: {vectorizer.idf_.shape}")
+    elif hasattr(vectorizer, '_tfidf') and hasattr(vectorizer._tfidf, 'idf_'):
+        logger.info(f"Vectorizer._tfidf has idf_ with shape: {vectorizer._tfidf.idf_.shape}")
+    else:
+        logger.warning("Vectorizer does not have idf_ attribute - may cause issues during transform")
+    
     logger.info(f"Loaded TF-IDF vectorizer with {len(vectorizer.vocabulary_)} features")
+    logger.info(f"Vectorizer type: {type(vectorizer)}")
+    
+    # Test transform to verify it works
+    try:
+        test_result = vectorizer.transform(["test email body"]).toarray()
+        logger.info(f"Test transform successful, shape: {test_result.shape}")
+    except Exception as e:
+        logger.error(f"Test transform FAILED: {e}")
+        raise
+    
     return vectorizer
 
 
@@ -400,14 +423,42 @@ class BatchPredictorActor:
         scaler_bytes: bytes,
         model_version: str
     ):
+        import logging
+        import cloudpickle
+        logger = logging.getLogger(__name__)
+        
         # Load model from bytes (avoiding MLflow's DefaultAzureCredential issue)
         self.model = pickle.loads(model_bytes)
+        logger.info(f"Actor: Loaded model type: {type(self.model)}")
         
-        # Load vectorizer
-        self.vectorizer = pickle.loads(vectorizer_bytes)
+        # Load vectorizer using cloudpickle (handles sklearn internal state better)
+        self.vectorizer = cloudpickle.loads(vectorizer_bytes)
+        logger.info(f"Actor: Loaded vectorizer type: {type(self.vectorizer)}")
         
-        # Load scaler (CRITICAL for correct predictions)
-        self.scaler = pickle.loads(scaler_bytes)
+        # Validate vectorizer after unpickling
+        if hasattr(self.vectorizer, 'vocabulary_'):
+            logger.info(f"Actor: Vectorizer vocabulary size: {len(self.vectorizer.vocabulary_)}")
+        else:
+            logger.error("Actor: Vectorizer has no vocabulary_!")
+            
+        # Check idf_
+        if hasattr(self.vectorizer, '_tfidf') and hasattr(self.vectorizer._tfidf, 'idf_'):
+            logger.info(f"Actor: Vectorizer._tfidf.idf_ shape: {self.vectorizer._tfidf.idf_.shape}")
+        elif hasattr(self.vectorizer, 'idf_'):
+            logger.info(f"Actor: Vectorizer.idf_ shape: {self.vectorizer.idf_.shape}")
+        else:
+            logger.error("Actor: Vectorizer has NO idf_ attribute - this will fail!")
+            
+        # Test transform in actor
+        try:
+            test_result = self.vectorizer.transform(["test"]).toarray()
+            logger.info(f"Actor: Test transform OK, shape: {test_result.shape}")
+        except Exception as e:
+            logger.error(f"Actor: Test transform FAILED: {e}")
+        
+        # Load scaler using cloudpickle
+        self.scaler = cloudpickle.loads(scaler_bytes)
+        logger.info(f"Actor: Loaded scaler type: {type(self.scaler)}")
         
         self.model_version = model_version
         
@@ -545,11 +596,14 @@ def run_batch_prediction(
     
     # Load TF-IDF vectorizer
     vectorizer = load_tfidf_vectorizer(fs)
-    vectorizer_bytes = pickle.dumps(vectorizer)
+    # Use cloudpickle for sklearn objects - handles internal state better
+    vectorizer_bytes = cloudpickle.dumps(vectorizer)
+    logger.info(f"Vectorizer serialized with cloudpickle: {len(vectorizer_bytes)} bytes")
     
     # Load StandardScaler (CRITICAL - model was trained on scaled features)
     scaler = load_scaler(fs)
-    scaler_bytes = pickle.dumps(scaler)
+    scaler_bytes = cloudpickle.dumps(scaler)
+    logger.info(f"Scaler serialized with cloudpickle: {len(scaler_bytes)} bytes")
     
     # Read input data
     full_input_path = f"{AZURE_STORAGE_CONTAINER}/{input_path}"

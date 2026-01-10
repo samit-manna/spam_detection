@@ -63,6 +63,9 @@ ENV/
 kubeconfig
 *.kubeconfig
 
+# Generated pipeline YAML (use .template version)
+training/pipeline/spam_detection_pipeline.yaml
+
 # Temporary files
 tmp/
 temp/

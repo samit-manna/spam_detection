@@ -1,14 +1,26 @@
 # Data Pipeline Makefile
-# Orchestrates Ray jobs for data preprocessing
+# Orchestrates Ray jobs for data preprocessing via port-forward to existing Ray cluster
 
 NAMESPACE := ray
+RAY_ADDRESS := http://localhost:8265
 TIMEOUT := 1800  # 30 minutes per stage
+SCRIPTS_DIR := data-pipeline
+VENV := ../.venv/bin/activate
+
+# Shell setup - activate venv for ray commands
+SHELL := /bin/bash
+.SHELLFLAGS := -c
 
 .PHONY: help run-pipeline download-dataset parse-emails extract-features \
-        status logs clean wait-for-job list-jobs feast-apply feast-status
+        status logs clean port-forward stop-port-forward check-ray-connection \
+        feast-apply feast-status verify-data
 
 help:
 	@echo "Data Pipeline - Ray Job Orchestration"
+	@echo ""
+	@echo "Prerequisites:"
+	@echo "  make port-forward       Start port-forward to Ray cluster (run in separate terminal)"
+	@echo "  make check-ray-connection  Verify Ray cluster is accessible"
 	@echo ""
 	@echo "Pipeline Stages:"
 	@echo "  make run-pipeline       Run complete pipeline (download → parse → extract)"
@@ -21,119 +33,132 @@ help:
 	@echo "  make feast-status       Check Feast job status"
 	@echo ""
 	@echo "Monitoring:"
-	@echo "  make status             Check status of all jobs"
-	@echo "  make logs JOB=<name>    View logs for a specific job"
-	@echo "  make list-jobs          List all RayJobs"
+	@echo "  make status             Check status of Ray cluster and jobs"
+	@echo "  make logs               View Ray dashboard (open browser)"
 	@echo ""
 	@echo "Utilities:"
-	@echo "  make clean              Delete all completed/failed jobs"
-	@echo "  make clean-all          Delete ALL jobs (including running)"
+	@echo "  make clean              Clean up any old RayJob resources"
 	@echo "  make verify-data        Verify output data in Azure Blob"
+
+# =============================================================================
+# PORT FORWARD MANAGEMENT
+# =============================================================================
+
+port-forward:
+	@echo "Starting port-forward to Ray cluster..."
+	@echo "Press Ctrl+C to stop"
+	kubectl port-forward svc/ray-cluster-head-svc 8265:8265 10001:10001 -n $(NAMESPACE)
+
+stop-port-forward:
+	@echo "Stopping port-forward..."
+	@pkill -f "kubectl port-forward.*ray-cluster-head-svc" || echo "No port-forward running"
+
+check-ray-connection:
+	@echo "Checking Ray cluster connection..."
+	@curl -s $(RAY_ADDRESS) > /dev/null 2>&1 && \
+		echo "✓ Ray cluster is accessible at $(RAY_ADDRESS)" || \
+		(echo "✗ Cannot connect to Ray cluster. Run 'make port-forward' in another terminal first." && exit 1)
+
+# Helper to get Azure credentials
+define get_azure_creds
+	$(eval AZURE_STORAGE_ACCOUNT_NAME := $(shell kubectl get secret ray-azure-secret -n $(NAMESPACE) -o jsonpath='{.data.azure-storage-account-name}' | base64 -d))
+	$(eval AZURE_STORAGE_ACCOUNT_KEY := $(shell kubectl get secret ray-azure-secret -n $(NAMESPACE) -o jsonpath='{.data.azure-storage-account-key}' | base64 -d))
+endef
 
 # =============================================================================
 # FULL PIPELINE
 # =============================================================================
 
-run-pipeline: clean
+run-pipeline: check-ray-connection
 	@echo "============================================================"
 	@echo "STARTING DATA PIPELINE"
 	@echo "============================================================"
 	@$(MAKE) download-dataset
-	@$(MAKE) wait-for-job JOB=download-dataset
 	@$(MAKE) parse-emails
-	@$(MAKE) wait-for-job JOB=parse-emails
 	@$(MAKE) extract-features
-	@$(MAKE) wait-for-job JOB=extract-features
 	@$(MAKE) feast-apply
 	@echo "============================================================"
 	@echo "DATA PIPELINE COMPLETED SUCCESSFULLY"
 	@echo "============================================================"
 
 # =============================================================================
-# INDIVIDUAL STAGES
+# INDIVIDUAL STAGES (using ray job submit)
 # =============================================================================
 
-download-dataset:
+download-dataset: check-ray-connection
 	@echo "▶ Stage 1: Downloading SpamAssassin dataset..."
-	@kubectl delete rayjob download-dataset -n $(NAMESPACE) --ignore-not-found
-	@kubectl apply -f data-pipeline/rayjob-download-dataset.yaml
-	@echo "  Job submitted. Use 'make logs JOB=download-dataset' to monitor."
+	$(call get_azure_creds)
+	@source $(VENV) && ray job submit \
+		--address $(RAY_ADDRESS) \
+		--submission-id download-dataset-$$(date +%s) \
+		--runtime-env-json '{ \
+			"pip": ["adlfs>=2023.1.0", "azure-identity>=1.12.0"], \
+			"env_vars": { \
+				"AZURE_STORAGE_ACCOUNT_NAME": "$(AZURE_STORAGE_ACCOUNT_NAME)", \
+				"AZURE_STORAGE_ACCOUNT_KEY": "$(AZURE_STORAGE_ACCOUNT_KEY)" \
+			} \
+		}' \
+		--working-dir $(SCRIPTS_DIR) \
+		-- python download_dataset.py
+	@echo "  ✓ Stage 1 completed"
 
-parse-emails:
+parse-emails: check-ray-connection
 	@echo "▶ Stage 2: Parsing emails to Parquet..."
-	@kubectl delete rayjob parse-emails -n $(NAMESPACE) --ignore-not-found
-	@kubectl apply -f data-pipeline/rayjob-parse-emails.yaml
-	@echo "  Job submitted. Use 'make logs JOB=parse-emails' to monitor."
+	$(call get_azure_creds)
+	@source $(VENV) && ray job submit \
+		--address $(RAY_ADDRESS) \
+		--submission-id parse-emails-$$(date +%s) \
+		--runtime-env-json '{ \
+			"pip": ["adlfs>=2023.1.0", "pandas>=2.0.0", "pyarrow>=12.0.0"], \
+			"env_vars": { \
+				"AZURE_STORAGE_ACCOUNT_NAME": "$(AZURE_STORAGE_ACCOUNT_NAME)", \
+				"AZURE_STORAGE_ACCOUNT_KEY": "$(AZURE_STORAGE_ACCOUNT_KEY)" \
+			} \
+		}' \
+		--working-dir $(SCRIPTS_DIR) \
+		-- python parse_emails.py
+	@echo "  ✓ Stage 2 completed"
 
-extract-features:
+extract-features: check-ray-connection
 	@echo "▶ Stage 3: Extracting ML features..."
-	@kubectl delete rayjob extract-features -n $(NAMESPACE) --ignore-not-found
-	@kubectl apply -f data-pipeline/rayjob-extract-features.yaml
-	@echo "  Job submitted. Use 'make logs JOB=extract-features' to monitor."
+	$(call get_azure_creds)
+	@source $(VENV) && ray job submit \
+		--address $(RAY_ADDRESS) \
+		--submission-id extract-features-$$(date +%s) \
+		--runtime-env-json '{ \
+			"pip": ["adlfs>=2023.1.0", "pandas>=2.0.0", "pyarrow>=12.0.0", "scikit-learn==1.4.0"], \
+			"env_vars": { \
+				"AZURE_STORAGE_ACCOUNT_NAME": "$(AZURE_STORAGE_ACCOUNT_NAME)", \
+				"AZURE_STORAGE_ACCOUNT_KEY": "$(AZURE_STORAGE_ACCOUNT_KEY)" \
+			} \
+		}' \
+		--working-dir $(SCRIPTS_DIR) \
+		-- python extract_features.py
+	@echo "  ✓ Stage 3 completed"
 
 # =============================================================================
-# JOB MANAGEMENT
+# MONITORING
 # =============================================================================
-
-wait-for-job:
-ifndef JOB
-	$(error JOB is required. Usage: make wait-for-job JOB=download-dataset)
-endif
-	@echo "  Waiting for $(JOB) to complete..."
-	@timeout=$(TIMEOUT); \
-	while [ $$timeout -gt 0 ]; do \
-		status=$$(kubectl get rayjob $(JOB) -n $(NAMESPACE) -o jsonpath='{.status.jobStatus}' 2>/dev/null); \
-		if [ "$$status" = "SUCCEEDED" ]; then \
-			echo "  ✓ $(JOB) completed successfully"; \
-			exit 0; \
-		elif [ "$$status" = "FAILED" ]; then \
-			echo "  ✗ $(JOB) failed. Check logs with: make logs JOB=$(JOB)"; \
-			exit 1; \
-		fi; \
-		sleep 10; \
-		timeout=$$((timeout - 10)); \
-		echo "    Status: $$status ($$timeout s remaining)"; \
-	done; \
-	echo "  ✗ $(JOB) timed out after $(TIMEOUT) seconds"; \
-	exit 1
 
 status:
-	@echo "RayJob Status:"
-	@echo "============================================================"
-	@kubectl get rayjobs -n $(NAMESPACE) -o wide 2>/dev/null || echo "No RayJobs found"
-	@echo ""
 	@echo "Ray Cluster Status:"
+	@echo "============================================================"
 	@kubectl get rayclusters -n $(NAMESPACE) -o wide 2>/dev/null || echo "No RayClusters found"
+	@echo ""
+	@echo "Ray Pods:"
+	@kubectl get pods -n $(NAMESPACE) -l ray.io/cluster=ray-cluster 2>/dev/null || echo "No Ray pods found"
+	@echo ""
+	@echo "To view Ray Dashboard, run: make port-forward"
+	@echo "Then open: http://localhost:8265"
 
 logs:
-ifndef JOB
-	$(error JOB is required. Usage: make logs JOB=download-dataset)
-endif
-	@echo "Logs for $(JOB):"
-	@kubectl logs -n $(NAMESPACE) -l ray.io/job-name=$(JOB) --tail=100 -f 2>/dev/null || \
-		kubectl logs -n $(NAMESPACE) job/$(JOB) --tail=100 2>/dev/null || \
-		echo "No logs found for $(JOB). Job may not have started yet."
-
-list-jobs:
-	@kubectl get rayjobs -n $(NAMESPACE) -o custom-columns=\
-NAME:.metadata.name,\
-STATUS:.status.jobStatus,\
-START:.status.startTime,\
-END:.status.endTime
+	@echo "Opening Ray Dashboard..."
+	@echo "Make sure port-forward is running (make port-forward in another terminal)"
+	@open http://localhost:8265 2>/dev/null || echo "Open http://localhost:8265 in your browser"
 
 clean:
-	@echo "Cleaning up completed/failed jobs..."
-	@for job in download-dataset parse-emails extract-features; do \
-		status=$$(kubectl get rayjob $$job -n $(NAMESPACE) -o jsonpath='{.status.jobStatus}' 2>/dev/null); \
-		if [ "$$status" = "SUCCEEDED" ] || [ "$$status" = "FAILED" ]; then \
-			kubectl delete rayjob $$job -n $(NAMESPACE) --ignore-not-found; \
-			echo "  Deleted: $$job"; \
-		fi; \
-	done
-
-clean-all:
-	@echo "Deleting ALL RayJobs..."
-	@kubectl delete rayjob download-dataset parse-emails extract-features -n $(NAMESPACE) --ignore-not-found
+	@echo "Cleaning up old RayJob resources (if any)..."
+	@kubectl delete rayjob download-dataset parse-emails extract-features -n $(NAMESPACE) --ignore-not-found 2>/dev/null || true
 	@echo "Done."
 
 # =============================================================================
@@ -142,19 +167,20 @@ clean-all:
 
 verify-data:
 	@echo "Verifying pipeline outputs..."
+	$(call get_azure_creds)
 	@echo ""
 	@echo "Raw Dataset:"
-	@az storage blob list --account-name $$AZURE_STORAGE_ACCOUNT_NAME \
+	@az storage blob list --account-name $(AZURE_STORAGE_ACCOUNT_NAME) \
 		--container-name datasets --prefix raw/spamassassin/ \
 		--query "length(@)" -o tsv 2>/dev/null | xargs -I {} echo "  Files: {}"
 	@echo ""
 	@echo "Processed Emails:"
-	@az storage blob list --account-name $$AZURE_STORAGE_ACCOUNT_NAME \
+	@az storage blob list --account-name $(AZURE_STORAGE_ACCOUNT_NAME) \
 		--container-name datasets --prefix processed/emails/ \
 		--query "[].name" -o tsv 2>/dev/null | head -5
 	@echo ""
 	@echo "Feature Files:"
-	@az storage blob list --account-name $$AZURE_STORAGE_ACCOUNT_NAME \
+	@az storage blob list --account-name $(AZURE_STORAGE_ACCOUNT_NAME) \
 		--container-name feast --prefix features/ \
 		--query "[].name" -o tsv 2>/dev/null | head -10
 

@@ -322,14 +322,17 @@ if __name__ == "__main__":
     data_prep_image = f"{acr_name}/ml-data-prep:{image_tag}"
     mlflow_ops_image = f"{acr_name}/ml-mlflow-ops:{image_tag}"
     
+    # Output file path
+    output_path = "spam_detection_pipeline.yaml"
+    
     # Compile pipeline to YAML
     compiler.Compiler().compile(
         pipeline_func=spam_detection_pipeline,
-        package_path="spam_detection_pipeline.yaml",
+        package_path=output_path,
     )
     
     # Post-process YAML to fix placeholder images and remove unsupported fields
-    with open("spam_detection_pipeline.yaml", "r") as f:
+    with open(output_path, "r") as f:
         yaml_content = f.read()
     
     # Replace placeholder images with actual images
@@ -400,26 +403,60 @@ if __name__ == "__main__":
     if storage_account:
         # Update the default value in the root parameters section
         yaml_content = re.sub(
-            r"(storage_account:\s*\n\s*defaultValue:\s*)mltrainingsdevsal6xriy",
+            r"(storage_account:\s*\n\s*defaultValue:\s*)[^\n]+",
             rf"\g<1>{storage_account}",
             yaml_content
         )
         # Also update the comment at the top
         yaml_content = re.sub(
-            r"(#\s*storage_account: str \[Default: ')mltrainingsdevsal6xriy(')",
+            r"(#\s*storage_account: str \[Default: ')[^']+(')",
             rf"\g<1>{storage_account}\g<2>",
             yaml_content
         )
     
-    with open("spam_detection_pipeline.yaml", "w") as f:
+    # Update acr_name default value in the root parameters section
+    # The root inputDefinitions acr_name has description then parameterType
+    # We need to add defaultValue and isOptional after description
+    yaml_content = re.sub(
+        r"(  inputDefinitions:\n    parameters:\n      acr_name:\n        description: [^\n]+\n)(        parameterType: STRING\n)",
+        rf"\g<1>        defaultValue: {acr_name}\n        isOptional: true\n\g<2>",
+        yaml_content
+    )
+    # Also update the comment at the top
+    yaml_content = re.sub(
+        r"(#\s*acr_name: str)(\s*\n|$)",
+        rf"\g<1> [Default: '{acr_name}']\n",
+        yaml_content
+    )
+    
+    # Update image_tag default value
+    yaml_content = re.sub(
+        r"(      image_tag:\n\s*defaultValue:\s*)[^\n]+",
+        rf"\g<1>{image_tag}",
+        yaml_content
+    )
+    # Also update the comment at the top for image_tag
+    yaml_content = re.sub(
+        r"(#\s*image_tag: str \[Default: ')[^']+(')",
+        rf"\g<1>{image_tag}\g<2>",
+        yaml_content
+    )
+    
+    # Write the generated YAML with actual values
+    with open(output_path, "w") as f:
         f.write(yaml_content)
     
-    print(f"\n✓ Pipeline compiled to spam_detection_pipeline.yaml")
-    print(f"  Images:")
-    print(f"    - data-prep, feature-retrieval, hpo-tuning: {data_prep_image}")
-    print(f"    - baseline-training, evaluation, validation, comparison, promotion: {mlflow_ops_image}")
+    print(f"\n✓ Pipeline compiled successfully!")
+    print(f"\n  Generated: {output_path}")
+    print(f"\n  Default Parameter Values:")
+    print(f"    - acr_name: {acr_name}")
+    print(f"    - image_tag: {image_tag}")
     if storage_account:
-        print(f"  Default Storage Account: {storage_account}")
+        print(f"    - storage_account: {storage_account}")
+    print(f"\n  Images (resolved at runtime from acr_name + image_tag):")
+    print(f"    - data-prep, feature-retrieval, hpo-tuning: ${{acr_name}}/ml-data-prep:${{image_tag}}")
+    print(f"    - baseline-training, evaluation, validation, comparison, promotion: ${{acr_name}}/ml-mlflow-ops:${{image_tag}}")
+    print(f"    - hpo RayJob workers: ${{acr_name}}/ml-ray-train:${{image_tag}}")
     print(f"\n  Pipeline Steps:")
     print(f"    1. Data Preparation")
     print(f"    2. Feature Retrieval (Feast)")

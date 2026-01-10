@@ -4,6 +4,14 @@
 # Builds, tests, and deploys the model serving components
 # Runs on self-hosted runners in AKS for access to internal services
 # Uses Azure managed identity for ACR authentication
+#
+# Required GitHub Secrets:
+#   - ACR_NAME: Azure Container Registry URL (e.g., myacr.azurecr.io)
+#   - AZURE_CLIENT_ID: Kubelet managed identity client ID for ACR login
+#   - TEST_API_KEY: API key for integration tests
+#
+# Required GitHub Variables (optional, have defaults):
+#   - API_HOST: API hostname (default: api.ml-platform.example.com)
 # =============================================================================
 
 name: Model Serving CI/CD
@@ -37,8 +45,11 @@ on:
         type: string
 
 env:
-  # ACR Configuration - update this to match your ACR
-  ACR_NAME: mltrainingsdevacrqvwjyi.azurecr.io
+  # ACR Configuration - set via GitHub secrets
+  ACR_NAME: ${{ secrets.ACR_NAME }}
+  
+  # Azure Managed Identity Client ID for ACR login
+  AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
   
   # Image names
   API_GATEWAY_IMAGE: api-gateway
@@ -49,6 +60,10 @@ env:
   # Kubernetes namespaces
   SERVING_NAMESPACE: serving
   KSERVE_NAMESPACE: kserve
+  
+  # API Configuration
+  API_HOST: ${{ vars.API_HOST || 'api.ml-platform.example.com' }}
+  TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
 
 jobs:
   # ===========================================================================
@@ -92,7 +107,7 @@ jobs:
       - name: Login to ACR via Azure CLI
         run: |
           # Use managed identity from AKS node - specify kubelet identity client ID
-          az login --identity --client-id 9ae25c5e-14d8-4384-9c87-a57fecb27335
+          az login --identity --client-id ${{ env.AZURE_CLIENT_ID }}
           az acr login --name $(echo ${{ env.ACR_NAME }} | cut -d'.' -f1)
 
       - name: Build API Gateway
@@ -168,7 +183,7 @@ jobs:
     
     environment:
       name: staging
-      url: http://api.ml-platform.example.com
+      url: http://${{ vars.API_HOST || 'api.ml-platform.example.com' }}
     
     steps:
       - name: Checkout code
@@ -255,8 +270,8 @@ jobs:
           # Run tests and capture output
           python tests/integration_test.py \
             --api-gateway-url http://${{ steps.ingress.outputs.ip }} \
-            --host-header "api.ml-platform.example.com" \
-            --api-key "test-operator-key" \
+            --host-header "${{ env.API_HOST }}" \
+            --api-key "${{ env.TEST_API_KEY }}" \
             --model-name spam-detector \
             2>&1 | tee test_output.txt
           
@@ -321,7 +336,7 @@ jobs:
     
     environment:
       name: production
-      url: http://api.ml-platform.example.com
+      url: http://${{ vars.API_HOST || 'api.ml-platform.example.com' }}
     
     steps:
       - name: Checkout code

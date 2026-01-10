@@ -1,0 +1,900 @@
+{
+	"info": {
+		"_postman_id": "spam-detection-api-collection",
+		"name": "Spam Detection API",
+		"description": "API collection for testing the ML-based Spam Detection platform.\n\n## Overview\n- Health check endpoints\n- Prediction endpoints (single and staging)\n- Test cases for spam and ham emails\n\n## Authentication\nAll requests require an `X-API-Key` header.\n\n## Host Header\nWhen using Istio ingress, include the `Host` header with the configured domain.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "{{api_gateway_url}}"
+		}
+	],
+	"auth": {
+		"type": "apikey",
+		"apikey": [
+			{
+				"key": "key",
+				"value": "X-API-Key",
+				"type": "string"
+			},
+			{
+				"key": "value",
+				"value": "{{api_key}}",
+				"type": "string"
+			},
+			{
+				"key": "in",
+				"value": "header",
+				"type": "string"
+			}
+		]
+	},
+	"item": [
+		{
+			"name": "Health",
+			"item": [
+				{
+					"name": "Health Check",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response is JSON\", function () {",
+									"    pm.response.to.be.json;",
+									"});",
+									"",
+									"pm.test(\"Status is healthy or degraded\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(['healthy', 'degraded']).to.include(jsonData.status);",
+									"});",
+									"",
+									"pm.test(\"Response time is acceptable\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(5000);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Host",
+								"value": "{{host_header}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{api_gateway_url}}/health",
+							"host": [
+								"{{api_gateway_url}}"
+							],
+							"path": [
+								"health"
+							]
+						},
+						"description": "Check the health status of the API Gateway and its dependencies."
+					},
+					"response": []
+				}
+			],
+			"description": "Health check endpoints for monitoring API availability."
+		},
+		{
+			"name": "Predictions",
+			"item": [
+				{
+					"name": "Predict - Spam Email (Lottery)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response is JSON\", function () {",
+									"    pm.response.to.be.json;",
+									"});",
+									"",
+									"pm.test(\"Has prediction field\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('prediction');",
+									"});",
+									"",
+									"pm.test(\"Has spam_probability field\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('spam_probability');",
+									"});",
+									"",
+									"pm.test(\"Prediction is spam\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData.prediction).to.equal('spam');",
+									"});",
+									"",
+									"pm.test(\"Spam probability is high (>0.5)\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData.spam_probability).to.be.above(0.5);",
+									"});",
+									"",
+									"pm.test(\"Response time is acceptable\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(10000);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Host",
+								"value": "{{host_header}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email_id\": \"spam_lottery_001\",\n    \"subject\": \"CONGRATULATIONS! You've WON $1,000,000!!!\",\n    \"body\": \"Dear Lucky Winner, You have been selected as the winner of our MEGA LOTTERY! Click here immediately to claim your $1,000,000 prize. This offer expires in 24 hours! Send us your bank details to receive your winnings. Act NOW before it's too late! This is NOT a scam, you are a REAL winner!\",\n    \"sender\": \"winner@lottery-scam-fake.com\",\n    \"date\": \"2024-01-15T10:30:00Z\"\n}"
+						},
+						"url": {
+							"raw": "{{api_gateway_url}}{{predict_path}}",
+							"host": [
+								"{{api_gateway_url}}"
+							],
+							"path": [
+								"predict"
+							]
+						},
+						"description": "Test prediction with a classic lottery scam email. Expected result: SPAM with high confidence."
+					},
+					"response": []
+				},
+				{
+					"name": "Predict - Spam Email (Phishing)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response is JSON\", function () {",
+									"    pm.response.to.be.json;",
+									"});",
+									"",
+									"pm.test(\"Prediction is spam\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData.prediction).to.equal('spam');",
+									"});",
+									"",
+									"pm.test(\"Spam probability is high (>0.5)\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData.spam_probability).to.be.above(0.5);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Host",
+								"value": "{{host_header}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email_id\": \"spam_phishing_002\",\n    \"subject\": \"URGENT: Your account has been compromised!\",\n    \"body\": \"Dear Customer, We detected suspicious activity on your account. Your account will be suspended unless you verify your identity within 24 hours. Click here to verify: http://fake-bank-login.com/verify. Enter your username, password, and social security number to confirm your identity. Failure to comply will result in permanent account closure.\",\n    \"sender\": \"security@fake-bank-phishing.com\",\n    \"date\": \"2024-01-15T11:00:00Z\"\n}"
+						},
+						"url": {
+							"raw": "{{api_gateway_url}}{{predict_path}}",
+							"host": [
+								"{{api_gateway_url}}"
+							],
+							"path": [
+								"predict"
+							]
+						},
+						"description": "Test prediction with a phishing email. Expected result: SPAM."
+					},
+					"response": []
+				},
+				{
+					"name": "Predict - Ham Email (Work Meeting)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response is JSON\", function () {",
+									"    pm.response.to.be.json;",
+									"});",
+									"",
+									"pm.test(\"Prediction is ham\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData.prediction).to.equal('ham');",
+									"});",
+									"",
+									"pm.test(\"Spam probability is low (<0.5)\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData.spam_probability).to.be.below(0.5);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Host",
+								"value": "{{host_header}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email_id\": \"ham_work_001\",\n    \"subject\": \"Team meeting tomorrow at 2pm\",\n    \"body\": \"Hi team, Just a reminder that we have our weekly sync meeting tomorrow at 2pm in Conference Room B. Please come prepared with your status updates. Agenda: 1. Sprint progress review, 2. Blockers discussion, 3. Next week planning. Let me know if you have any topics to add. Thanks!\",\n    \"sender\": \"manager@company.com\",\n    \"date\": \"2024-01-15T09:00:00Z\"\n}"
+						},
+						"url": {
+							"raw": "{{api_gateway_url}}{{predict_path}}",
+							"host": [
+								"{{api_gateway_url}}"
+							],
+							"path": [
+								"predict"
+							]
+						},
+						"description": "Test prediction with a legitimate work meeting email. Expected result: HAM."
+					},
+					"response": []
+				},
+				{
+					"name": "Predict - Ham Email (Personal)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response is JSON\", function () {",
+									"    pm.response.to.be.json;",
+									"});",
+									"",
+									"pm.test(\"Prediction is ham\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData.prediction).to.equal('ham');",
+									"});",
+									"",
+									"pm.test(\"Spam probability is low (<0.5)\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData.spam_probability).to.be.below(0.5);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Host",
+								"value": "{{host_header}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email_id\": \"ham_personal_002\",\n    \"subject\": \"Re: Lunch plans for Saturday\",\n    \"body\": \"Hey! Saturday at noon works great for me. How about we try that new Italian place downtown? I heard they have amazing pasta. Let me know if that works for you, or if you have other suggestions. See you then!\",\n    \"sender\": \"friend@email.com\",\n    \"date\": \"2024-01-15T18:30:00Z\"\n}"
+						},
+						"url": {
+							"raw": "{{api_gateway_url}}{{predict_path}}",
+							"host": [
+								"{{api_gateway_url}}"
+							],
+							"path": [
+								"predict"
+							]
+						},
+						"description": "Test prediction with a personal/friendly email. Expected result: HAM."
+					},
+					"response": []
+				},
+				{
+					"name": "Predict - Staging Model",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"// Staging might not be deployed, so we accept 200 or 404",
+									"pm.test(\"Status code is 200 or staging not deployed\", function () {",
+									"    pm.expect([200, 404, 503]).to.include(pm.response.code);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    pm.test(\"Response is JSON\", function () {",
+									"        pm.response.to.be.json;",
+									"    });",
+									"    ",
+									"    pm.test(\"Has prediction field\", function () {",
+									"        const jsonData = pm.response.json();",
+									"        pm.expect(jsonData).to.have.property('prediction');",
+									"    });",
+									"    ",
+									"    pm.test(\"Has spam_probability field\", function () {",
+									"        const jsonData = pm.response.json();",
+									"        pm.expect(jsonData).to.have.property('spam_probability');",
+									"    });",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Host",
+								"value": "{{host_header}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email_id\": \"test_staging_001\",\n    \"subject\": \"Buy now! Limited offer!\",\n    \"body\": \"Click here to win amazing prizes! Act now before this exclusive offer expires! Don't miss out on this incredible opportunity!\",\n    \"sender\": \"promo@marketing-spam.com\",\n    \"date\": \"2024-01-15T10:00:00Z\"\n}"
+						},
+						"url": {
+							"raw": "{{api_gateway_url}}/predict/staging",
+							"host": [
+								"{{api_gateway_url}}"
+							],
+							"path": [
+								"predict",
+								"staging"
+							]
+						},
+						"description": "Test prediction using the staging model (for canary deployments). The staging endpoint might not be deployed in all environments."
+					},
+					"response": []
+				}
+			],
+			"description": "Prediction endpoints for classifying emails as spam or ham."
+		},
+		{
+			"name": "Bias Tests",
+			"item": [
+				{
+					"name": "Bias - Nigerian Prince Scam",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Detected as spam\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData.prediction).to.equal('spam');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Host",
+								"value": "{{host_header}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email_id\": \"bias_nigerian_001\",\n    \"subject\": \"Urgent Business Proposal - $10,000,000 Transfer\",\n    \"body\": \"Dear Sir/Madam, I am Prince Abubakar from Nigeria. I need your help to transfer $10,000,000 from my country. You will receive 40% as commission. Please send your bank details immediately. This is a confidential matter. God bless you.\",\n    \"sender\": \"prince.abubakar@nigeria-royal.com\",\n    \"date\": \"2024-01-15T08:00:00Z\"\n}"
+						},
+						"url": {
+							"raw": "{{api_gateway_url}}{{predict_path}}",
+							"host": [
+								"{{api_gateway_url}}"
+							],
+							"path": [
+								"predict"
+							]
+						},
+						"description": "Nigerian prince scam - classic 419 fraud email. Expected: SPAM"
+					},
+					"response": []
+				},
+				{
+					"name": "Bias - Pharmaceutical Spam",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Detected as spam\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData.prediction).to.equal('spam');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Host",
+								"value": "{{host_header}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email_id\": \"bias_pharma_001\",\n    \"subject\": \"V1AGRA and C1AL1S - 90% OFF!!!\",\n    \"body\": \"Buy cheap medications online! No prescription needed! V1agra, C1alis, and more at unbeatable prices. Order now and get free shipping! Click here: http://cheap-pills-pharmacy.xyz\",\n    \"sender\": \"deals@online-pharmacy-spam.net\",\n    \"date\": \"2024-01-15T03:00:00Z\"\n}"
+						},
+						"url": {
+							"raw": "{{api_gateway_url}}{{predict_path}}",
+							"host": [
+								"{{api_gateway_url}}"
+							],
+							"path": [
+								"predict"
+							]
+						},
+						"description": "Pharmaceutical spam email. Expected: SPAM"
+					},
+					"response": []
+				},
+				{
+					"name": "Bias - Legitimate Newsletter",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Detected as ham (not spam)\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData.prediction).to.equal('ham');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Host",
+								"value": "{{host_header}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email_id\": \"bias_newsletter_001\",\n    \"subject\": \"Your Weekly Tech Digest\",\n    \"body\": \"Hello subscriber, Here's your weekly tech digest. Top stories: 1. New AI developments in healthcare. 2. Cloud computing trends for 2024. 3. Cybersecurity best practices. Click to read more on our website. Unsubscribe link at the bottom.\",\n    \"sender\": \"newsletter@techdigest.com\",\n    \"date\": \"2024-01-15T07:00:00Z\"\n}"
+						},
+						"url": {
+							"raw": "{{api_gateway_url}}{{predict_path}}",
+							"host": [
+								"{{api_gateway_url}}"
+							],
+							"path": [
+								"predict"
+							]
+						},
+						"description": "Legitimate newsletter - should NOT be flagged as spam. Expected: HAM"
+					},
+					"response": []
+				},
+				{
+					"name": "Bias - Order Confirmation",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Detected as ham (not spam)\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData.prediction).to.equal('ham');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Host",
+								"value": "{{host_header}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email_id\": \"bias_order_001\",\n    \"subject\": \"Order Confirmation #12345\",\n    \"body\": \"Thank you for your order! Order #12345 has been confirmed. Items: 1x Wireless Headphones ($79.99). Shipping to: 123 Main St. Expected delivery: Jan 20, 2024. Track your order at our website. Contact support if you have questions.\",\n    \"sender\": \"orders@legitimate-store.com\",\n    \"date\": \"2024-01-15T14:00:00Z\"\n}"
+						},
+						"url": {
+							"raw": "{{api_gateway_url}}{{predict_path}}",
+							"host": [
+								"{{api_gateway_url}}"
+							],
+							"path": [
+								"predict"
+							]
+						},
+						"description": "Legitimate order confirmation - should NOT be flagged as spam. Expected: HAM"
+					},
+					"response": []
+				},
+				{
+					"name": "Bias - Job Scam",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Detected as spam\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData.prediction).to.equal('spam');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Host",
+								"value": "{{host_header}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email_id\": \"bias_job_scam_001\",\n    \"subject\": \"WORK FROM HOME - Earn $5000/week GUARANTEED!\",\n    \"body\": \"Make money from home! No experience needed! Earn $5000 per week working just 2 hours a day! This is a LIMITED opportunity. Send $50 processing fee to get started. Reply immediately to secure your spot!\",\n    \"sender\": \"jobs@work-from-home-scam.biz\",\n    \"date\": \"2024-01-15T11:30:00Z\"\n}"
+						},
+						"url": {
+							"raw": "{{api_gateway_url}}{{predict_path}}",
+							"host": [
+								"{{api_gateway_url}}"
+							],
+							"path": [
+								"predict"
+							]
+						},
+						"description": "Work from home job scam. Expected: SPAM"
+					},
+					"response": []
+				},
+				{
+					"name": "Bias - Password Reset (Legitimate)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Detected as ham (not spam)\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData.prediction).to.equal('ham');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Host",
+								"value": "{{host_header}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email_id\": \"bias_password_legit_001\",\n    \"subject\": \"Password Reset Request\",\n    \"body\": \"Hi, We received a request to reset the password for your account. If you made this request, click the link below to reset your password. This link expires in 24 hours. If you didn't request this, please ignore this email. Your password won't change. Security team.\",\n    \"sender\": \"noreply@company.com\",\n    \"date\": \"2024-01-15T16:00:00Z\"\n}"
+						},
+						"url": {
+							"raw": "{{api_gateway_url}}{{predict_path}}",
+							"host": [
+								"{{api_gateway_url}}"
+							],
+							"path": [
+								"predict"
+							]
+						},
+						"description": "Legitimate password reset email - should NOT be flagged as spam. Expected: HAM"
+					},
+					"response": []
+				}
+			],
+			"description": "Bias test cases to evaluate model fairness across different email categories."
+		},
+		{
+			"name": "Error Cases",
+			"item": [
+				{
+					"name": "Missing API Key",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 401 or 403\", function () {",
+									"    pm.expect([401, 403]).to.include(pm.response.code);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Host",
+								"value": "{{host_header}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email_id\": \"test_no_auth\",\n    \"subject\": \"Test\",\n    \"body\": \"Test body\",\n    \"sender\": \"test@test.com\",\n    \"date\": \"2024-01-15T10:00:00Z\"\n}"
+						},
+						"url": {
+							"raw": "{{api_gateway_url}}{{predict_path}}",
+							"host": [
+								"{{api_gateway_url}}"
+							],
+							"path": [
+								"predict"
+							]
+						},
+						"description": "Test that API rejects requests without API key."
+					},
+					"response": []
+				},
+				{
+					"name": "Invalid Request Body",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 400 or 422\", function () {",
+									"    pm.expect([400, 422]).to.include(pm.response.code);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Host",
+								"value": "{{host_header}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"invalid_field\": \"test\"\n}"
+						},
+						"url": {
+							"raw": "{{api_gateway_url}}{{predict_path}}",
+							"host": [
+								"{{api_gateway_url}}"
+							],
+							"path": [
+								"predict"
+							]
+						},
+						"description": "Test that API rejects requests with invalid body."
+					},
+					"response": []
+				},
+				{
+					"name": "Empty Body",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 400 or 422\", function () {",
+									"    pm.expect([400, 422]).to.include(pm.response.code);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Host",
+								"value": "{{host_header}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{}"
+						},
+						"url": {
+							"raw": "{{api_gateway_url}}{{predict_path}}",
+							"host": [
+								"{{api_gateway_url}}"
+							],
+							"path": [
+								"predict"
+							]
+						},
+						"description": "Test that API rejects empty request body."
+					},
+					"response": []
+				}
+			],
+			"description": "Error handling test cases to verify proper API error responses."
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Log environment being used",
+					"console.log('Environment:', pm.environment.name);",
+					"console.log('API Gateway URL:', pm.environment.get('api_gateway_url'));"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Global test - log response for debugging",
+					"if (pm.response.code >= 400) {",
+					"    console.log('Error Response:', pm.response.text());",
+					"}"
+				]
+			}
+		}
+	]
+}

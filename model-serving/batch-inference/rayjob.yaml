@@ -13,6 +13,7 @@
 #   # Set environment variables and apply with envsubst
 #   export ACR_NAME=myacr.azurecr.io
 #   export IMAGE_TAG=v0.15
+#   export MODEL_STAGE=Staging  # or Production
 #   export AZURE_STORAGE_ACCOUNT_NAME=mystorageaccount
 #   export AZURE_STORAGE_ACCOUNT_KEY=mykey
 #   envsubst < rayjob.yaml | kubectl apply -f -
@@ -32,7 +33,7 @@ metadata:
     version: "${IMAGE_TAG}"
 spec:
   # Job configuration - use fixed output path to avoid shell expansion issues
-  entrypoint: "python /app/batch_predict.py --input-path batch/emails_to_predict.parquet --output-path predictions/batch_output_test.parquet --model-name spam-detector --model-stage Production --batch-size 1000"
+  entrypoint: "python /app/batch_predict.py --input-path batch/emails_to_predict.parquet --output-path predictions/batch_output_test.parquet --model-name spam-detector --model-stage ${MODEL_STAGE} --batch-size 1000"
   
   # Shut down the Ray cluster after job completion to save resources
   shutdownAfterJobFinishes: true

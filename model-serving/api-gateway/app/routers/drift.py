@@ -266,14 +266,18 @@ class DriftService:
             container = client.get_container_client(self.container_name)
             blob = container.get_blob_client(blob_path)
             
+            logger.info(f"Attempting to download: container={self.container_name}, path={blob_path}")
+            
             if not blob.exists():
+                logger.warning(f"Blob does not exist: {self.container_name}/{blob_path}")
                 return None
             
             data = blob.download_blob().readall()
+            logger.info(f"Successfully downloaded {blob_path}, size={len(data)} bytes")
             return json.loads(data.decode("utf-8"))
             
         except Exception as e:
-            logger.error(f"Failed to download {blob_path}: {e}")
+            logger.error(f"Failed to download {blob_path} from container {self.container_name}: {e}")
             return None
     
     def _list_reports(self, days: int = 7) -> List[str]:
@@ -506,6 +510,7 @@ def init_drift_service(
     storage_account_name: Optional[str] = None,
     storage_account_key: Optional[str] = None,
     model_name: str = "spam-detector",
+    container_name: Optional[str] = None,
 ) -> DriftService:
     """Initialize the drift service with custom configuration."""
     global _drift_service
@@ -513,6 +518,7 @@ def init_drift_service(
         storage_account_name=storage_account_name,
         storage_account_key=storage_account_key,
         model_name=model_name,
+        container_name=container_name,
     )
     return _drift_service
 

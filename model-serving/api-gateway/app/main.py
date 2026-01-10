@@ -71,8 +71,9 @@ async def lifespan(app: FastAPI):
             storage_account_name=settings.AZURE_STORAGE_ACCOUNT_NAME,
             storage_account_key=settings.AZURE_STORAGE_ACCOUNT_KEY,
             model_name=settings.MODEL_NAME,
+            container_name=settings.INFERENCE_LOG_CONTAINER,  # "feast" container
         )
-        logger.info("Drift monitoring service initialized")
+        logger.info(f"Drift monitoring service initialized (container={settings.INFERENCE_LOG_CONTAINER})")
     
     # Setup graceful shutdown handlers
     loop = asyncio.get_event_loop()
@@ -136,20 +137,21 @@ app.add_middleware(
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(AuthMiddleware)
 
-# Mount Prometheus metrics endpoint
-metrics_app = make_asgi_app()
-app.mount("/metrics", metrics_app)
-
-# Include routers
+# Include routers BEFORE mounting Prometheus (order matters!)
 app.include_router(health.router, tags=["Health"])
 app.include_router(models.router, prefix="/models", tags=["Models"])
 app.include_router(predict.router, prefix="/predict", tags=["Inference"])
 app.include_router(batch.router, prefix="/predict/batch", tags=["Batch Inference"])
-app.include_router(metrics.router, prefix="/metrics", tags=["Monitoring"])
+app.include_router(metrics.router, prefix="/monitoring", tags=["Monitoring"])
 
 # Include drift monitoring router (if available)
 if DRIFT_ROUTER_AVAILABLE and drift_router:
-    app.include_router(drift_router, prefix="/metrics/drift", tags=["Drift Monitoring"])
+    app.include_router(drift_router, prefix="/monitoring/drift", tags=["Drift Monitoring"])
+
+# Mount Prometheus metrics endpoint LAST (it's a catch-all for /metrics)
+# Prometheus scrapes this endpoint for metrics
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
 
 
 @app.exception_handler(HTTPException)

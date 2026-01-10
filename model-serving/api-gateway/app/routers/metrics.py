@@ -21,13 +21,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.get("/drift", response_model=DriftMetrics)
-async def get_drift_metrics(
+@router.get("/drift-cache", response_model=DriftMetrics)
+async def get_drift_metrics_from_cache(
     clients: ServiceClients = Depends(get_clients),
     window_hours: int = Query(24, ge=1, le=168, description="Analysis window in hours")
 ):
     """
-    Get latest drift detection scores.
+    Get drift metrics from Redis cache (fast, but may be stale).
+    
+    For latest drift reports from Azure Blob, use /monitoring/drift instead.
     
     Returns feature drift, prediction drift, and data quality metrics.
     """

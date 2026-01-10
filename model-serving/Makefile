@@ -1,13 +1,15 @@
 # Model Serving Platform Makefile
 #
 # Usage:
-#   make all               # Run full setup: build → export → deploy → test
-#   make infra             # Deploy serving infrastructure via Terraform
-#   make build-images      # Build and push all Docker images to ACR
-#   make deploy-staging    # Deploy to staging
-#   make deploy-prod       # Deploy to production
-#   make test              # Run integration tests
-#   make clean             # Clean up resources
+#   make all                        # Run full setup: build → export → deploy → test
+#   make all IMAGE_TAG=v1.0.0       # Run full setup with custom image tag
+#   make infra                      # Deploy serving infrastructure via Terraform
+#   make build-images               # Build and push all Docker images to ACR
+#   make build-images IMAGE_TAG=v1  # Build with custom tag
+#   make deploy-staging             # Deploy to staging
+#   make deploy-prod                # Deploy to production
+#   make test                       # Run integration tests
+#   make clean                      # Clean up resources
 #
 # Note: Infrastructure (KServe, Istio, etc.) is managed by Terraform in ../terraform/serving-infra
 # Note: ACR, Storage, and Redis details are automatically fetched from Terraform outputs
@@ -45,19 +47,20 @@ all: setup
 setup:
 	@echo "$(YELLOW)========================================$(NC)"
 	@echo "$(YELLOW)Starting Full Model Serving Setup$(NC)"
+	@echo "$(YELLOW)Using IMAGE_TAG=$(IMAGE_TAG)$(NC)"
 	@echo "$(YELLOW)========================================$(NC)"
 	@echo ""
 	@echo "$(YELLOW)Step 1/9: Checking prerequisites...$(NC)"
 	@$(MAKE) check-env
 	@echo ""
 	@echo "$(YELLOW)Step 2/9: Building Docker images...$(NC)"
-	@$(MAKE) build-images
+	@$(MAKE) build-images IMAGE_TAG=$(IMAGE_TAG)
 	@echo ""
 	@echo "$(YELLOW)Step 3/9: Deploying API Gateway...$(NC)"
-	@$(MAKE) deploy-api-gateway
+	@$(MAKE) deploy-api-gateway IMAGE_TAG=$(IMAGE_TAG)
 	@echo ""
 	@echo "$(YELLOW)Step 4/9: Deploying Feature Transformer...$(NC)"
-	@$(MAKE) deploy-transformer
+	@$(MAKE) deploy-transformer IMAGE_TAG=$(IMAGE_TAG)
 	@echo ""
 	@echo "$(YELLOW)Step 5/9: Deploying Feast materialization...$(NC)"
 	@$(MAKE) deploy-feast
@@ -83,9 +86,10 @@ help:
 	@echo "Model Serving Platform Commands"
 	@echo ""
 	@echo "Quick Start:"
-	@echo "  make all               Run full setup (build → export → deploy → test)"
-	@echo "  make setup             Same as 'make all'"
-	@echo "  make deploy-all        Deploy all components (gateway, transformer, staging, prod)"
+	@echo "  make all                         Run full setup (build → export → deploy → test)"
+	@echo "  make all IMAGE_TAG=v1.0.0        Run full setup with custom image tag"
+	@echo "  make setup IMAGE_TAG=v1.0.0      Same as 'make all'"
+	@echo "  make deploy-all                  Deploy all components (gateway, transformer, staging, prod)"
 	@echo ""
 	@echo "Infrastructure (Terraform):"
 	@echo "  make infra             Deploy serving infra (KServe, Istio, Knative)"
@@ -94,8 +98,8 @@ help:
 	@echo "  make verify-infra      Verify infrastructure deployment"
 	@echo ""
 	@echo "Build & Push:"
-	@echo "  make build-images      Build and push all Docker images to ACR"
-	@echo "  make build-images IMAGE_TAG=v1.0.0  # Build with custom tag"
+	@echo "  make build-images                Build and push all Docker images (tag: latest)"
+	@echo "  make build-images IMAGE_TAG=v1.0.0  Build with custom tag"
 	@echo ""
 	@echo "Model Lifecycle:"
 	@echo "  make model-list        List all model versions and stages"
@@ -114,7 +118,10 @@ help:
 	@echo ""
 	@echo "Operations:"
 	@echo "  make materialize       Run Feast materialization"
-	@echo "  make batch-predict     Run batch prediction job"
+	@echo "  make create-batch-test-data              Create test data (100 emails)"
+	@echo "  make create-batch-test-data NUM_SAMPLES=500  Create more samples"
+	@echo "  make batch-predict                     Run batch prediction job (default: Staging)"
+	@echo "  make batch-predict MODEL_STAGE=Production  Run with Production model"
 	@echo "  make test              Run integration tests"
 	@echo "  make test-local        Run tests with docker-compose"
 	@echo ""
@@ -286,9 +293,27 @@ materialize: get-terraform-outputs
 	kubectl create job --from=cronjob/feast-materialize feast-materialize-manual-$(shell date +%s) -n $(NS_FEAST)
 	@echo "$(GREEN)Materialization job created$(NC)"
 
+# Create and upload test data for batch prediction
+# Usage: make create-batch-test-data NUM_SAMPLES=100 SPAM_RATIO=0.5
+NUM_SAMPLES ?= 100
+SPAM_RATIO ?= 0.5
+create-batch-test-data: get-terraform-outputs
+	@echo "$(YELLOW)Creating test data for batch prediction...$(NC)"
+	AZURE_STORAGE_ACCOUNT_NAME=$(AZURE_STORAGE_ACCOUNT_NAME) \
+		AZURE_STORAGE_ACCOUNT_KEY=$(AZURE_STORAGE_ACCOUNT_KEY) \
+		python3 batch-inference/create_test_data.py \
+			--output-path batch/emails_to_predict.parquet \
+			--num-samples $(NUM_SAMPLES) \
+			--spam-ratio $(SPAM_RATIO)
+	@echo "$(GREEN)Test data uploaded to datasets/batch/emails_to_predict.parquet$(NC)"
+
 batch-predict: get-terraform-outputs
 	@echo "$(YELLOW)Submitting batch prediction job...$(NC)"
-	ACR_NAME=$(ACR_NAME) IMAGE_TAG=$(IMAGE_TAG) AZURE_STORAGE_ACCOUNT_NAME=$(AZURE_STORAGE_ACCOUNT_NAME) AZURE_STORAGE_ACCOUNT_KEY=$(AZURE_STORAGE_ACCOUNT_KEY) \
+	@echo "Using MODEL_STAGE=$(MODEL_STAGE)"
+	@# Delete existing job if it exists (to allow re-runs)
+	@kubectl delete rayjob batch-prediction -n $(NS_RAY) --ignore-not-found=true
+	ACR_NAME=$(ACR_NAME) IMAGE_TAG=$(IMAGE_TAG) MODEL_STAGE=$(MODEL_STAGE) \
+		AZURE_STORAGE_ACCOUNT_NAME=$(AZURE_STORAGE_ACCOUNT_NAME) AZURE_STORAGE_ACCOUNT_KEY=$(AZURE_STORAGE_ACCOUNT_KEY) \
 		envsubst < batch-inference/rayjob.yaml | kubectl apply -f -
 	@echo "$(GREEN)Batch job submitted$(NC)"
 	@echo "Check status with: kubectl get rayjob batch-prediction -n $(NS_RAY)"

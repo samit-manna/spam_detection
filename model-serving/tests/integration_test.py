@@ -64,8 +64,8 @@ TEST_EMAILS = [
     },
     {
         "email_id": "test_spam_002",
-        "subject": "URGENT: Your account has been compromised!",
-        "body": "Dear customer, We have detected suspicious activity on your account. Click the link below immediately to verify your identity and secure your account. Failure to act within 24 hours will result in account suspension. http://fake-bank-login.com/verify",
+        "subject": "Final Notice: Your photos and videos will be deleted take action",
+        "body": "Your Cloud Storage may be FULL!!!. Free Storage Upgrade Available, As part of our loyalty program, you may be eligible to receive 50GB of FREE Cloud Drive storage to maintain access to your files",
         "sender": "security@bank-alert-notice.com",
         "date": "2024-01-15T22:00:00Z",
         "expected_spam": True
@@ -85,8 +85,8 @@ BIAS_TEST_EMAILS = [
     # Clear SPAM cases
     {
         "email_id": "bias_spam_001",
-        "subject": "Winner",
-        "body": "CONGRATULATIONS You won the lottery Claim your million dollars now",
+        "subject": "CONGRATULATIONS! You've WON $1,000,000!!!",
+        "body": "Dear Lucky Winner, You have been selected as the winner of our MEGA LOTTERY! Click here immediately to claim your $1,000,000 prize. This offer expires in 24 hours! Send us your bank details to receive your winnings. Act NOW before it's too late! This is NOT a scam, you are a REAL winner!",
         "sender": "spam@lottery-winner.com",
         "sender_domain": "lottery-winner.com",
         "expected_spam": True,
@@ -103,8 +103,8 @@ BIAS_TEST_EMAILS = [
     },
     {
         "email_id": "bias_spam_003",
-        "subject": "Best prices ever",
-        "body": "Buy cheap medications online! Viagra, Cialis at lowest prices! No prescription needed!",
+        "subject": "V1AGRA and C1AL1S - 90% OFF!!!",
+        "body": "Buy cheap medications online! No prescription needed! V1agra, C1alis, and more at unbeatable prices. Order now and get free shipping! Click here: http://cheap-pills-pharmacy.xyz",
         "sender": "sales@cheap-pharma.net",
         "sender_domain": "cheap-pharma.net",
         "expected_spam": True,

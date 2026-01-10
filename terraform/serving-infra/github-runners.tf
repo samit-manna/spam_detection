@@ -331,7 +331,7 @@ resource "kubernetes_role" "github_runner_serving" {
 
   metadata {
     name      = "github-runner"
-    namespace = "serving"
+    namespace = kubernetes_namespace.serving.metadata[0].name
   }
 
   rule {
@@ -346,7 +346,7 @@ resource "kubernetes_role_binding" "github_runner_serving" {
 
   metadata {
     name      = "github-runner"
-    namespace = "serving"
+    namespace = kubernetes_namespace.serving.metadata[0].name
   }
 
   role_ref {
@@ -378,7 +378,7 @@ resource "kubernetes_role" "github_runner_kserve" {
 
   metadata {
     name      = "github-runner"
-    namespace = "kserve"
+    namespace = kubernetes_namespace.kserve[0].metadata[0].name
   }
 
   rule {
@@ -393,7 +393,7 @@ resource "kubernetes_role_binding" "github_runner_kserve" {
 
   metadata {
     name      = "github-runner"
-    namespace = "kserve"
+    namespace = kubernetes_namespace.kserve[0].metadata[0].name
   }
 
   role_ref {
@@ -451,7 +451,7 @@ resource "kubernetes_config_map" "platform_config_kserve" {
 
   metadata {
     name      = "platform-config"
-    namespace = "kserve"
+    namespace = kubernetes_namespace.kserve[0].metadata[0].name
     labels = {
       "app.kubernetes.io/name"       = "platform-config"
       "app.kubernetes.io/component"  = "configuration"

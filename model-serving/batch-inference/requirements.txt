@@ -11,3 +11,5 @@ azure-storage-blob==12.19.0
 azure-identity==1.15.0
 # scikit-learn must match version used to train the model (1.7.2)
 scikit-learn==1.4.0
+# cloudpickle for better serialization of sklearn objects across Ray workers
+cloudpickle>=2.2.0
