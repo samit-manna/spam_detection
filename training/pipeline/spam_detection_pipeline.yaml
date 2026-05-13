@@ -2,7 +2,7 @@
 # Name: spam-detection-training
 # Description: End-to-end spam detection model training pipeline with Feast feature retrieval, baseline training, HPO, and model registration
 # Inputs:
-#    acr_name: str [Default: 'mltrainingsdevacr2u5926.azurecr.io']
+#    acr_name: str [Default: 'mltrainingsdevacrh9va09.azurecr.io']
 #    baseline_model_type: str [Default: 'logistic_regression']
 #    container_name: str [Default: 'datasets']
 #    entity_data_path: str [Default: 'processed/emails/all_emails.parquet']
@@ -23,7 +23,7 @@
 #    model_container_name: str [Default: 'models']
 #    model_name: str [Default: 'spam-detector']
 #    num_hpo_trials: int [Default: 20.0]
-#    storage_account: str [Default: 'mltrainingsdevsa2u5926']
+#    storage_account: str [Default: 'mltrainingsdevsah9va09']
 #    test_split_ratio: float [Default: 0.2]
 components:
   comp-baseline-training:
@@ -618,7 +618,7 @@ deploymentSpec:
           Outputs\", [\"f1_score\", \"precision\", \"recall\", \"auc_roc\", \"baseline_model_path\"\
           ])\n    return outputs(float(f1), float(precision), float(recall), float(auc_roc),\
           \ model_output_path)\n\n"
-        image: mltrainingsdevacr2u5926.azurecr.io/ml-mlflow-ops:v1.0
+        image: mltrainingsdevacrh9va09.azurecr.io/ml-mlflow-ops:v1.0
     exec-data-preparation:
       container:
         args:
@@ -744,7 +744,7 @@ deploymentSpec:
           test_count\", \"spam_ratio\", \"train_entity_path\", \"test_entity_path\"\
           ])\n    return outputs(len(train_df), len(test_df), float(spam_ratio), train_path_output,\
           \ test_path_output)\n\n"
-        image: mltrainingsdevacr2u5926.azurecr.io/ml-data-prep:v1.0
+        image: mltrainingsdevacrh9va09.azurecr.io/ml-data-prep:v1.0
     exec-feature-retrieval:
       container:
         args:
@@ -935,7 +935,7 @@ deploymentSpec:
           , [\"feature_count\", \"train_samples\", \"test_samples\", \"train_features_path\"\
           , \"test_features_path\"])\n    return outputs(feature_count, len(train_features_df),\
           \ len(test_features_df), train_path_output, test_path_output)\n\n"
-        image: mltrainingsdevacr2u5926.azurecr.io/ml-data-prep:v1.0
+        image: mltrainingsdevacrh9va09.azurecr.io/ml-data-prep:v1.0
     exec-hpo-tuning:
       container:
         args:
@@ -1093,7 +1093,7 @@ deploymentSpec:
           \ namedtuple\n    outputs = namedtuple(\"Outputs\", [\"best_f1\", \"best_params\"\
           , \"best_model_path\"])\n    return outputs(float(best_f1), best_params,\
           \ model_path)\n\n"
-        image: mltrainingsdevacr2u5926.azurecr.io/ml-data-prep:v1.0
+        image: mltrainingsdevacrh9va09.azurecr.io/ml-data-prep:v1.0
     exec-model-comparison:
       container:
         args:
@@ -1307,7 +1307,7 @@ deploymentSpec:
           \        bool(has_staging),\n        float(new_f1),\n        float(staging_f1),\n\
           \        float(f1_improvement),\n        float(new_auc),\n        float(staging_auc),\n\
           \        float(auc_improvement),\n        comparison_report\n    )\n\n"
-        image: mltrainingsdevacr2u5926.azurecr.io/ml-mlflow-ops:v1.0
+        image: mltrainingsdevacrh9va09.azurecr.io/ml-mlflow-ops:v1.0
     exec-model-evaluation:
       container:
         args:
@@ -1519,7 +1519,7 @@ deploymentSpec:
           \    outputs = namedtuple(\"Outputs\", [\"test_f1\", \"registered\", \"\
           model_version\"])\n    return outputs(float(f1), registered, model_version)\n\
           \n"
-        image: mltrainingsdevacr2u5926.azurecr.io/ml-mlflow-ops:v1.0
+        image: mltrainingsdevacrh9va09.azurecr.io/ml-mlflow-ops:v1.0
     exec-model-promotion:
       container:
         args:
@@ -1714,7 +1714,7 @@ deploymentSpec:
           Outputs\", [\"promoted\", \"model_version\", \"promotion_report\"])\n  \
           \  return outputs(promoted, str(model_version) if model_version else \"\"\
           , promotion_report)\n\n"
-        image: mltrainingsdevacr2u5926.azurecr.io/ml-mlflow-ops:v1.0
+        image: mltrainingsdevacrh9va09.azurecr.io/ml-mlflow-ops:v1.0
     exec-model-validation:
       container:
         args:
@@ -1905,7 +1905,7 @@ deploymentSpec:
           \   ])\n    return outputs(\n        bool(all_passed), \n        float(f1),\
           \ \n        float(auc), \n        float(prec), \n        float(rec), \n\
           \        float(p95_inference_time),\n        validation_report\n    )\n\n"
-        image: mltrainingsdevacr2u5926.azurecr.io/ml-mlflow-ops:v1.0
+        image: mltrainingsdevacrh9va09.azurecr.io/ml-mlflow-ops:v1.0
 pipelineInfo:
   description: End-to-end spam detection model training pipeline with Feast feature
     retrieval, baseline training, HPO, and model registration
@@ -2193,7 +2193,7 @@ root:
     parameters:
       acr_name:
         description: Azure Container Registry name (used for setting component images)
-        defaultValue: mltrainingsdevacr2u5926.azurecr.io
+        defaultValue: mltrainingsdevacrh9va09.azurecr.io
         isOptional: true
         parameterType: STRING
       baseline_model_type:
@@ -2297,7 +2297,7 @@ root:
         isOptional: true
         parameterType: NUMBER_INTEGER
       storage_account:
-        defaultValue: mltrainingsdevsa2u5926
+        defaultValue: mltrainingsdevsah9va09
         description: Azure storage account name
         isOptional: true
         parameterType: STRING
